@@ -11,6 +11,7 @@ import { rateLimit } from '../express/middleware.js';
 import { RedisOverrideStore } from '../overrides/redis-override-store.js';
 import { RedisStore } from '../stores/redis-store.js';
 import { adminRouter } from './admin.js';
+import { swaggerUiPage } from './docs.js';
 import {
   adminTokenHandler,
   authenticate,
@@ -184,6 +185,14 @@ export function createApp({
       failurePolicy: config.failurePolicy,
     };
     res.status(ready ? 200 : 503).json(body);
+  });
+
+  const docsPage = swaggerUiPage(
+    '/openapi.json',
+    String((spec.info as { title?: string } | undefined)?.title ?? 'API'),
+  );
+  app.get('/docs', (_req, res) => {
+    res.type('html').send(docsPage);
   });
 
   app.get('/openapi.json', (_req, res) => {
