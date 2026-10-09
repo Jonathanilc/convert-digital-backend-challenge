@@ -8,6 +8,8 @@ const [USERNAME = 'alice', PASSWORD = 'wonderland'] = (
   process.env.SMOKE_USER ?? 'alice:wonderland'
 ).split(':');
 
+const VERIFY_CLIENT_IP = process.env.SMOKE_VERIFY_CLIENT_IP === 'true';
+
 const api = httpClient(APP_URL);
 const admin = { headers: { 'x-admin-token': ADMIN_TOKEN } };
 
@@ -25,6 +27,12 @@ describe(`smoke against ${APP_URL}`, () => {
     const res = await api.get('/health', { expect: 200 });
     expect(res.body).toEqual({ status: 'ok', checks: { redis: 'up' } });
     await expectContract(res, 'GET', '/health');
+  });
+
+  it('reports itself ready to receive traffic', async () => {
+    const res = await api.get('/ready', { expect: 200 });
+    expect(res.body).toMatchObject({ status: 'ready', checks: { redis: 'up' } });
+    await expectContract(res, 'GET', '/ready');
   });
 
   it('serves its OpenAPI document', async () => {
@@ -95,6 +103,37 @@ describe(`smoke against ${APP_URL}`, () => {
       'DELETE',
       '/admin/overrides/{id}',
     );
+    created.splice(created.indexOf(id), 1);
+    await api.get('/api/public', { expect: 200 });
+  });
+
+  it.runIf(VERIFY_CLIENT_IP)('sees the real client IP through the platform proxy', async () => {
+    // Learn our own egress addresses (v4 and, if available, v6), block them, expect to be blocked.
+    const lookup = async (url: string): Promise<string | undefined> => {
+      try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(5_000) });
+        return res.ok ? (await res.text()).trim() : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    const ips = (
+      await Promise.all([lookup('https://api.ipify.org'), lookup('https://api6.ipify.org')])
+    ).filter((ip): ip is string => Boolean(ip));
+    expect(ips.length, 'could not determine our egress IP').toBeGreaterThan(0);
+
+    const createdRes = await api.post(
+      '/admin/overrides',
+      { reason: 'smoke: client ip', criteria: { ips }, effect: { limit: 0 }, ttlSeconds: 60 },
+      { ...admin, expect: 201 },
+    );
+    const id: string = createdRes.body.id;
+    created.push(id);
+
+    const blocked = await api.get('/api/public', { expect: 429 });
+    expect(blocked.body.override).toBe(id);
+
+    await api.delete(`/admin/overrides/${id}`, { ...admin, expect: 204 });
     created.splice(created.indexOf(id), 1);
     await api.get('/api/public', { expect: 200 });
   });

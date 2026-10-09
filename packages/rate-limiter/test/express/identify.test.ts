@@ -66,3 +66,47 @@ describe('identifyByIp', () => {
     });
   });
 });
+
+describe('clientIpHeader', () => {
+  const withHeader = (value: string | undefined, ip = '::ffff:10.0.0.1') =>
+    req({
+      ip,
+      get: (name: string) => (name.toLowerCase() === 'fly-client-ip' ? value : undefined),
+    });
+
+  it('takes the client address from a trusted platform header when configured', () => {
+    const identify = identifyByUserOrIp({ clientIpHeader: 'Fly-Client-IP' });
+    expect(identify(withHeader('203.0.113.9'))).toEqual({
+      key: 'ip:203.0.113.9',
+      tier: 'unauthenticated',
+      ip: '203.0.113.9',
+    });
+    expect(identify(withHeader('::ffff:203.0.113.9'))).toMatchObject({ ip: '203.0.113.9' });
+  });
+
+  it('falls back to the socket address when the header is missing or blank', () => {
+    const identify = identifyByUserOrIp({ clientIpHeader: 'Fly-Client-IP' });
+    expect(identify(withHeader(undefined))).toMatchObject({ key: 'ip:10.0.0.1' });
+    expect(identify(withHeader('  '))).toMatchObject({ key: 'ip:10.0.0.1' });
+  });
+
+  it('uses the first address when the header carries a list', () => {
+    const identify = identifyByIp({ clientIpHeader: 'Fly-Client-IP' });
+    expect(identify(withHeader('203.0.113.9, 198.51.100.1'))).toMatchObject({
+      key: 'ip:203.0.113.9',
+      ip: '203.0.113.9',
+    });
+  });
+
+  it('still records the user id for authenticated requests', () => {
+    const identify = identifyByUserOrIp({ clientIpHeader: 'Fly-Client-IP' });
+    expect(
+      identify(req({ ip: '10.0.0.1', user: { id: 'alice' }, get: () => '203.0.113.9' })),
+    ).toEqual({
+      key: 'user:alice',
+      tier: 'authenticated',
+      userId: 'alice',
+      ip: '203.0.113.9',
+    });
+  });
+});

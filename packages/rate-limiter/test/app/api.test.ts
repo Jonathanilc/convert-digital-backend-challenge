@@ -1,4 +1,6 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { Writable } from 'node:stream';
+import pino from 'pino';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppConfig, AppDependencies } from '../../src/demo/app.js';
 import { createApp } from '../../src/demo/app.js';
 import { fakeClock } from '../helpers/clock.js';
@@ -47,7 +49,19 @@ const baseConfig: AppConfig = {
   overridesRefreshMs: 5_000,
 };
 
-const silent = { info: () => undefined, warn: () => undefined, error: () => undefined };
+const silent = pino({ level: 'silent' });
+
+/** A pino logger whose JSON lines are captured in memory. */
+function captureLogger() {
+  const lines: Array<Record<string, unknown>> = [];
+  const stream = new Writable({
+    write(chunk, _encoding, callback) {
+      for (const line of chunk.toString().split('\n').filter(Boolean)) lines.push(JSON.parse(line));
+      callback();
+    },
+  });
+  return { logger: pino({ level: 'info' }, stream), lines };
+}
 const alice = { headers: { authorization: 'Bearer alice-token' } };
 const admin = { headers: { 'x-admin-token': 'admin-secret' } };
 
@@ -101,6 +115,37 @@ describe('demo API over a real HTTP server and real Redis', () => {
       await expectContract(res, 'GET', '/health');
     });
 
+    it('GET /ready is 200 while the instance can serve', async () => {
+      const { api } = await boot();
+      const res = await api.get('/ready', { expect: 200 });
+      expect(res.body).toEqual({ status: 'ready', checks: { redis: 'up' }, failurePolicy: 'open' });
+      await expectContract(res, 'GET', '/ready');
+    });
+
+    it('GET /ready stays ready through a Redis outage when failing open', async () => {
+      const { api, flaky } = await boot();
+      flaky.down = true;
+      const res = await api.get('/ready', { expect: 200 });
+      expect(res.body).toEqual({
+        status: 'ready',
+        checks: { redis: 'down' },
+        failurePolicy: 'open',
+      });
+      await expectContract(res, 'GET', '/ready');
+    });
+
+    it('GET /ready is 503 through a Redis outage when failing closed', async () => {
+      const { api, flaky } = await boot({ failurePolicy: 'closed' });
+      flaky.down = true;
+      const res = await api.get('/ready', { expect: 503 });
+      expect(res.body).toEqual({
+        status: 'not-ready',
+        checks: { redis: 'down' },
+        failurePolicy: 'closed',
+      });
+      await expectContract(res, 'GET', '/ready');
+    });
+
     it('GET /openapi.json serves the contract', async () => {
       const { api } = await boot();
       const res = await api.get('/openapi.json', { expect: 200 });
@@ -114,6 +159,8 @@ describe('demo API over a real HTTP server and real Redis', () => {
       for (let i = 0; i < 6; i++) {
         const health = await api.get('/health', { expect: 200 });
         expect(health.headers['ratelimit-limit']).toBeUndefined();
+        const ready = await api.get('/ready', { expect: 200 });
+        expect(ready.headers['ratelimit-limit']).toBeUndefined();
         const list = await api.get('/admin/overrides', { ...admin, expect: 200 });
         expect(list.headers['ratelimit-limit']).toBeUndefined();
       }
@@ -420,7 +467,74 @@ describe('demo API over a real HTTP server and real Redis', () => {
     });
   });
 
+  describe('logging', () => {
+    it('emits one JSON line per request carrying the rate-limit decision, and skips probes', async () => {
+      const { logger, lines } = captureLogger();
+      const { api } = await boot({}, { logger });
+      await api.get('/api/public', { expect: 200 });
+      await api.get('/health', { expect: 200 });
+      await api.get('/ready', { expect: 200 });
+
+      await vi.waitFor(() =>
+        expect(lines.some((l) => (l.req as { url?: string })?.url === '/api/public')).toBe(true),
+      );
+      const entry = lines.find((l) => (l.req as { url?: string })?.url === '/api/public')!;
+      expect(entry).toMatchObject({
+        level: 30,
+        req: { method: 'GET', url: '/api/public' },
+        res: { statusCode: 200 },
+        rateLimit: { ruleId: 'default', tier: 'unauthenticated', allowed: true, remaining: 2 },
+      });
+      expect(typeof entry.responseTime).toBe('number');
+      expect((entry.req as { id?: unknown }).id).toBeDefined();
+      expect(lines.some((l) => (l.req as { url?: string })?.url === '/health')).toBe(false);
+      expect(lines.some((l) => (l.req as { url?: string })?.url === '/ready')).toBe(false);
+    });
+
+    it('honours a platform request id and logs blocked requests at warn level', async () => {
+      const { logger, lines } = captureLogger();
+      const { api } = await boot({}, { logger });
+      for (let i = 0; i < 3; i++) await api.get('/api/public', { expect: 200 });
+      await api.get('/api/public', { headers: { 'fly-request-id': 'req-abc' }, expect: 429 });
+
+      await vi.waitFor(() =>
+        expect(
+          lines.filter((l) => (l.req as { url?: string })?.url === '/api/public'),
+        ).toHaveLength(4),
+      );
+      const blocked = lines.find((l) => (l.res as { statusCode?: number })?.statusCode === 429)!;
+      expect(blocked).toMatchObject({
+        level: 40,
+        req: { id: 'req-abc' },
+        rateLimit: { allowed: false, remaining: 0 },
+      });
+    });
+  });
+
   describe('proxies', () => {
+    it('keys anonymous clients by a trusted client-IP header when configured (e.g. Fly-Client-IP)', async () => {
+      const { api } = await boot({ clientIpHeader: 'Fly-Client-IP' });
+      const from = (ip: string) => ({ headers: { 'fly-client-ip': ip } });
+      for (let i = 0; i < 3; i++)
+        await api.get('/api/public', { ...from('198.51.100.1'), expect: 200 });
+      await api.get('/api/public', { ...from('198.51.100.1'), expect: 429 });
+      await api.get('/api/public', { ...from('198.51.100.2'), expect: 200 });
+      // Without the header the socket address is used, which is a separate budget.
+      await api.get('/api/public', { expect: 200 });
+
+      await api.post(
+        '/admin/overrides',
+        {
+          reason: 'abuse',
+          criteria: { ips: ['198.51.100.2'] },
+          effect: { limit: 0 },
+          ttlSeconds: 600,
+        },
+        { ...admin, expect: 201 },
+      );
+      await api.get('/api/public', { ...from('198.51.100.2'), expect: 429 });
+    });
+
     it('separates anonymous clients by X-Forwarded-For only when trustProxy is enabled', async () => {
       const { api } = await boot({ trustProxy: true });
       const from = (ip: string) => ({ headers: { 'x-forwarded-for': ip } });

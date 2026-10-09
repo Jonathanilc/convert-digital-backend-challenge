@@ -36,7 +36,7 @@ tags:
   - name: Admin
     description: Temporary rate-limit overrides. Requires the `X-Admin-Token` header. Not rate limited.
   - name: Meta
-    description: Health and documentation. Not rate limited.
+    description: Health, readiness and documentation. Not rate limited.
 
 paths:
   /health:
@@ -52,6 +52,30 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Health'
+
+  /ready:
+    get:
+      operationId: getReadiness
+      tags: [Meta]
+      summary: Readiness probe for load balancers and rolling deploys
+      description: |
+        Exempt from rate limiting. `200` while the instance can serve traffic, `503` when it cannot:
+        when Redis is unreachable and the failure policy is `closed`. With the default fail-open
+        policy a Redis outage keeps the instance ready (requests pass without limits) and is
+        reported by `/health` as `degraded` instead.
+      responses:
+        '200':
+          description: Ready to receive traffic.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Readiness'
+        '503':
+          description: Not ready; the platform should keep traffic away from this instance.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Readiness'
 
   /openapi.json:
     get:
@@ -396,6 +420,26 @@ components:
             redis:
               type: string
               enum: [up, down]
+
+    Readiness:
+      type: object
+      required: [status, checks, failurePolicy]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [ready, not-ready]
+        checks:
+          type: object
+          required: [redis]
+          additionalProperties: false
+          properties:
+            redis:
+              type: string
+              enum: [up, down]
+        failurePolicy:
+          type: string
+          enum: [open, closed]
 
     Tier:
       type: string

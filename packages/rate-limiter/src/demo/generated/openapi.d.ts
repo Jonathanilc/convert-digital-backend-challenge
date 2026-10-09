@@ -24,6 +24,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Readiness probe for load balancers and rolling deploys
+         * @description Exempt from rate limiting. `200` while the instance can serve traffic, `503` when it cannot:
+         *     when Redis is unreachable and the failure policy is `closed`. With the default fail-open
+         *     policy a Redis outage keeps the instance ready (requests pass without limits) and is
+         *     reported by `/health` as `degraded` instead.
+         */
+        get: operations["getReadiness"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/openapi.json": {
         parameters: {
             query?: never;
@@ -195,6 +218,16 @@ export interface components {
                 /** @enum {string} */
                 redis: "up" | "down";
             };
+        };
+        Readiness: {
+            /** @enum {string} */
+            status: "ready" | "not-ready";
+            checks: {
+                /** @enum {string} */
+                redis: "up" | "down";
+            };
+            /** @enum {string} */
+            failurePolicy: "open" | "closed";
         };
         /**
          * @description Built-in tiers are `unauthenticated` and `authenticated`; deployments may add more.
@@ -377,6 +410,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    getReadiness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ready to receive traffic. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Readiness"];
+                };
+            };
+            /** @description Not ready; the platform should keep traffic away from this instance. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Readiness"];
                 };
             };
         };

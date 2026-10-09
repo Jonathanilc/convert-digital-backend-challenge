@@ -20,6 +20,7 @@ describe('loadConfig', () => {
       overridesKey: 'rl:overrides',
       overridesRefreshMs: 5_000,
     });
+    expect(config.clientIpHeader).toBeUndefined();
     expect(config.users.map((u) => u.id)).toEqual(['alice', 'bob']);
     expect(config.endpoints).toBe(DEMO_ENDPOINTS);
     expect(config.endpoints.map((e) => e.id)).toEqual(['login', 'search']);
@@ -42,6 +43,7 @@ describe('loadConfig', () => {
       KEY_PREFIX: 'app',
       OVERRIDES_KEY: 'app:ov',
       OVERRIDES_REFRESH_MS: '1000',
+      CLIENT_IP_HEADER: 'Fly-Client-IP',
     });
     expect(config).toMatchObject({
       port: 8080,
@@ -59,6 +61,7 @@ describe('loadConfig', () => {
       keyPrefix: 'app',
       overridesKey: 'app:ov',
       overridesRefreshMs: 1_000,
+      clientIpHeader: 'Fly-Client-IP',
     });
   });
 
@@ -72,10 +75,13 @@ describe('loadConfig', () => {
   });
 
   it('turns response validation off in production unless asked for', () => {
-    expect(loadConfig({ NODE_ENV: 'production' }).validateResponses).toBe(false);
-    expect(
-      loadConfig({ NODE_ENV: 'production', VALIDATE_RESPONSES: 'true' }).validateResponses,
-    ).toBe(true);
+    const production = {
+      NODE_ENV: 'production',
+      ADMIN_TOKEN: 'a-real-secret',
+      DEMO_USERS: 'carol:pw:carol-token',
+    };
+    expect(loadConfig(production).validateResponses).toBe(false);
+    expect(loadConfig({ ...production, VALIDATE_RESPONSES: 'true' }).validateResponses).toBe(true);
     expect(loadConfig({ NODE_ENV: 'test' }).validateResponses).toBe(true);
   });
 
@@ -86,5 +92,33 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ FAILURE_POLICY: 'maybe' })).toThrow(/FAILURE_POLICY/);
     expect(() => loadConfig({ DEMO_USERS: 'alice:only-two' })).toThrow(/DEMO_USERS/);
     expect(() => loadConfig({ PORT: '99999' })).toThrow(/PORT/);
+  });
+
+  describe('production guardrails', () => {
+    const production = {
+      NODE_ENV: 'production',
+      ADMIN_TOKEN: 'a-real-secret',
+      DEMO_USERS: 'carol:pw:carol-token',
+    };
+
+    it('accepts an explicit, non-default configuration', () => {
+      expect(() => loadConfig(production)).not.toThrow();
+    });
+
+    it('refuses to start with a missing or default admin token', () => {
+      expect(() => loadConfig({ ...production, ADMIN_TOKEN: undefined })).toThrow(/ADMIN_TOKEN/);
+      expect(() => loadConfig({ ...production, ADMIN_TOKEN: 'admin-secret' })).toThrow(
+        /ADMIN_TOKEN/,
+      );
+    });
+
+    it('requires users to be configured explicitly', () => {
+      expect(() => loadConfig({ ...production, DEMO_USERS: undefined })).toThrow(/DEMO_USERS/);
+    });
+
+    it('leaves development defaults alone', () => {
+      expect(() => loadConfig({ NODE_ENV: 'development' })).not.toThrow();
+      expect(() => loadConfig({})).not.toThrow();
+    });
   });
 });
