@@ -146,11 +146,22 @@ describe('demo API over a real HTTP server and real Redis', () => {
       await expectContract(res, 'GET', '/ready');
     });
 
+    it("GET /docs serves Swagger UI wired to this server's document", async () => {
+      const { api } = await boot();
+      const res = await api.get('/docs', { expect: 200 });
+      expect(res.headers['content-type']).toMatch(/^text\/html/);
+      expect(res.text).toContain('swagger-ui');
+      expect(res.text).toContain("url: '/openapi.json'");
+      expect(res.headers['ratelimit-limit']).toBeUndefined();
+      await expectContract(res, 'GET', '/docs');
+    });
+
     it('GET /openapi.json serves the contract', async () => {
       const { api } = await boot();
       const res = await api.get('/openapi.json', { expect: 200 });
       expect(res.body.openapi).toBe('3.1.0');
       expect(res.body.info.title).toBe('Rate Limiter Demo API');
+      expect(res.body.servers).toEqual([expect.objectContaining({ url: '/' })]); // relative: Swagger UI calls this origin
       await expectContract(res, 'GET', '/openapi.json');
     });
 

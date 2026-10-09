@@ -26,8 +26,8 @@ info:
     name: MIT
     identifier: MIT
 servers:
-  - url: http://localhost:3000
-    description: Local development
+  - url: /
+    description: The server this document was fetched from (works locally and in production)
 tags:
   - name: Public
     description: Endpoints available to everyone, subject to rate limits.
@@ -76,6 +76,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Readiness'
+
+  /docs:
+    get:
+      operationId: getDocs
+      tags: [Meta]
+      summary: Interactive API documentation (Swagger UI)
+      description: Renders this document with Swagger UI. "Try it out" calls the same origin.
+      responses:
+        '200':
+          description: HTML page.
+          content:
+            text/html:
+              schema:
+                type: string
 
   /openapi.json:
     get:

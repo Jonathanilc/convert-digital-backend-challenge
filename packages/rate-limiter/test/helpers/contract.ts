@@ -50,10 +50,21 @@ export async function expectContract(
       validate(schema, schema.type === 'integer' ? Number(value) : value, `${name} header`);
   }
 
-  const schema = (response!.content?.['application/json'] as { schema?: Schema } | undefined)
-    ?.schema;
-  if (schema) validate(schema, res.body, `${method} ${path} ${res.status} body`);
-  else expect(res.text ?? '').toBe('');
+  const content = response!.content ?? {};
+  const schema = (content['application/json'] as { schema?: Schema } | undefined)?.schema;
+  if (schema) {
+    validate(schema, res.body, `${method} ${path} ${res.status} body`);
+  } else if (Object.keys(content).length > 0) {
+    // Documented non-JSON response (e.g. text/html): check the media type and that a body came back.
+    const actual = res.headers['content-type'] ?? '';
+    expect(
+      Object.keys(content).some((type) => actual.startsWith(type)),
+      `${method} ${path} ${res.status} content-type ${actual} is not documented`,
+    ).toBe(true);
+    expect(res.text.length).toBeGreaterThan(0);
+  } else {
+    expect(res.text ?? '').toBe('');
+  }
 }
 
 /** Validates a value against a named component schema, for responses not tied to one operation. */

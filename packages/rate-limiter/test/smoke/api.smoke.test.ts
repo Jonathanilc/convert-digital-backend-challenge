@@ -35,6 +35,13 @@ describe(`smoke against ${APP_URL}`, () => {
     await expectContract(res, 'GET', '/ready');
   });
 
+  it('serves interactive docs', async () => {
+    const res = await api.get('/docs', { expect: 200 });
+    expect(res.headers['content-type']).toMatch(/^text\/html/);
+    expect(res.text).toContain('swagger-ui');
+    await expectContract(res, 'GET', '/docs');
+  });
+
   it('serves its OpenAPI document', async () => {
     const res = await api.get('/openapi.json', { expect: 200 });
     expect(res.body.openapi).toBe('3.1.0');
