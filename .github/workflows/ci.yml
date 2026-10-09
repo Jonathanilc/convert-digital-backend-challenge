@@ -45,4 +45,6 @@ jobs:
       - name: Build, push and deploy the exact runtime image
         run: make deploy FLY_APP="$FLY_APP"
       - name: Smoke test the live deployment
-        run: make smoke-remote FLY_APP="$FLY_APP" ADMIN_TOKEN="${{ secrets.ADMIN_TOKEN }}"
+        env:
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }} # via env, never on a command line
+        run: make smoke-remote FLY_APP="$FLY_APP"
