@@ -21,6 +21,8 @@ this document explains the model behind it and the decisions taken.
 ```
 .
 ├── docs/DESIGN.md                 this document
+├── docs/DEPLOYMENT.md             Fly.io runbook
+├── fly.toml                       Fly.io app configuration (no secrets)
 ├── Makefile                       local entry points: make owns Docker, npm scripts are Node tasks
 ├── Dockerfile                     multi-stage: deps → dev | build → runtime
 ├── compose.yaml                   local development: redis, app (hot reload), test runner
@@ -119,7 +121,10 @@ algorithm must never hit a `WRONGTYPE` error.
 - `identifyByIp`: always keyed by IP; authentication only changes the tier. This is the literal
   reading of the brief and is available for callers who want it.
 - Authentication is detected from `req.user.id`. IPv4-mapped IPv6 addresses are normalised.
-  Proxies are honoured via Express's `trust proxy` setting.
+- Behind a proxy, prefer `clientIpHeader` (e.g. `Fly-Client-IP`, `CF-Connecting-IP`): a header the
+  platform sets and clients cannot forge. Express `trust proxy` hop counting is also supported,
+  but on Fly the rightmost `X-Forwarded-For` entry is the app's own public IP, so hop counting
+  would key every caller on one address.
 - Tiers `unauthenticated` and `authenticated` are required. Extra tiers (e.g. `premium`) are
   allowed and inherit the authenticated limit when a rule omits them.
 
@@ -191,8 +196,11 @@ A blocked request also gets `Retry-After`.
 - **Override lookup fails**: base limits apply; the API never goes down because of overrides.
 - The Redis client is configured to fail within about one second (`maxRetriesPerRequest: 1`,
   `commandTimeout: 1000`) rather than queueing commands while reconnecting.
-- `GET /health` reports `degraded` with `checks.redis = down` while Redis is unreachable; the
-  container healthcheck keeps the instance marked healthy because it can still serve (fail-open).
+- `GET /health` reports `degraded` with `checks.redis = down` while Redis is unreachable.
+  `GET /ready`, used by the container healthcheck and by Fly's rolling deploys, returns 503 only
+  when the instance genuinely cannot serve: Redis down _and_ `failurePolicy = closed`. With
+  fail-open, a Redis outage must not pull instances out of rotation, or a degraded service would
+  become an outage.
 
 ## 8. Time
 
@@ -259,7 +267,22 @@ per message. The `path`/`method` pair is just a routing key to the engine, so on
 overrides and admin API. It would get its own `dev`/`runtime` targets or a second Dockerfile
 and join `compose.yaml` as another service.
 
-## 13. Known limitations
+## 13. Deployment
+
+The deployable unit is the `runtime` image. Production runs on Fly.io Machines (Sydney) with a
+managed Upstash Redis on Fly's private network; CI builds the image once, pushes it to Fly's
+registry tagged with the git SHA, deploys it with a rolling strategy gated on `/ready`, then runs
+the black-box smoke suite against the public URL. Rollback is redeploying the previous tag.
+Production configuration refuses demo defaults (`ADMIN_TOKEN`, `DEMO_USERS`). Logs are JSON lines
+(pino) with the rate-limit decision attached to every request. The runbook is
+[DEPLOYMENT.md](DEPLOYMENT.md).
+
+Why Fly Machines rather than Kubernetes or a hyperscaler: the app is one stateless service plus a
+hosted Redis; Machines run the exact image we test, health-gated rolling deploys come for free,
+and idle cost is near zero. Fly Kubernetes exists but is in closed beta at $75/month per cluster
+and would add nothing here.
+
+## 14. Known limitations
 
 - The sliding log stores one member per allowed request; at very high limits (thousands per
   window) a sliding **window counter** approximation would be cheaper. Not needed here.

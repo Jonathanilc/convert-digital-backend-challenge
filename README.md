@@ -57,15 +57,30 @@ way on the host and inside the containers (`npm test`, `npm run check`, `npm run
 | `make redis`                                  | Only Redis, for host-side runs (`npm test` then needs no Docker beyond that)         |
 | `make clean`                                  | Stop both stacks, remove volumes, delete `dist/` and `coverage/`                     |
 
+## Deployment
+
+The app is deployed to Fly.io Machines by CI on every push to `main`: the runtime image is built
+once, pushed to Fly's registry tagged with the git SHA, rolled out behind the `/ready` check, and
+then smoke-tested at its public URL. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the
+runbook (setup, secrets, rollback, scaling, cost).
+
+| Target                              | Purpose                                                         |
+| ----------------------------------- | --------------------------------------------------------------- |
+| `make deploy`                       | Manual deploy of the current commit (Docker + `fly auth login`) |
+| `make smoke-remote ADMIN_TOKEN=...` | Black-box suite against the live app                            |
+| `make fly-status` / `fly-logs`      | Machines, releases, logs                                        |
+
 ## Repository layout
 
 ```
 docs/DESIGN.md                      design & decisions
+docs/DEPLOYMENT.md                  Fly.io runbook
+fly.toml                            Fly.io app configuration (no secrets)
 Makefile                            local entry points (make = Docker; npm = Node tasks)
 Dockerfile                          deps → dev | build → runtime (the deployable image)
 compose.yaml                        local development: redis, app, test runner
 compose.prod.yaml                   production image + redis + smoke runner
-.github/workflows/ci.yml            check pipeline in Docker; runtime image smoke test
+.github/workflows/ci.yml            check + smoke in Docker, then deploy to Fly and smoke the live URL
 packages/rate-limiter/              Option 1 (see its README)
 ```
 
