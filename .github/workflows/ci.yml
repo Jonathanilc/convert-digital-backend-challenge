@@ -10,21 +10,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run the check pipeline inside the dev image against the compose Redis
-        run: docker compose run --rm --build test npm run check
+      - run: make check
       - if: always()
-        run: docker compose down -v
+        run: make down
 
   smoke:
     name: Production image smoke test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build the runtime image and start it with Redis
-        run: docker compose -f compose.prod.yaml up --build --wait app
-      - name: Black-box smoke suite against the running container
-        run: docker compose -f compose.prod.yaml run --rm --build smoke
+      - run: make smoke
+      - if: failure()
+        run: docker compose -f compose.prod.yaml logs app || true
       - if: always()
-        run: |
-          docker compose -f compose.prod.yaml logs app
-          docker compose -f compose.prod.yaml down -v
+        run: make prod-down
