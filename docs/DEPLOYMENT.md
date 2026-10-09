@@ -3,14 +3,14 @@
 The demo API runs on [Fly.io](https://fly.io) Machines in Sydney, with a managed Redis (Upstash) on
 Fly's private network. This is the runbook; the reasoning is in [DESIGN.md §13](DESIGN.md#13-deployment).
 
-| Item     | Value                                                                           |
-| -------- | ------------------------------------------------------------------------------- |
-| App      | `convert-digital-rate-limiter` → https://convert-digital-rate-limiter.fly.dev   |
-| Region   | `syd`                                                                           |
-| Machines | 2 × `shared-cpu-1x` 256 MB, auto-stop when idle, auto-start on request          |
-| Redis    | `convert-digital-rate-limiter-redis`, Upstash pay-as-you-go, eviction disabled  |
-| Config   | [`fly.toml`](../fly.toml); secrets via `fly secrets`                            |
-| Image    | built in CI, pushed to `registry.fly.io/convert-digital-rate-limiter:<git sha>` |
+| Item     | Value                                                                               |
+| -------- | ----------------------------------------------------------------------------------- |
+| App      | `convert-digital-rate-limiter` → https://convert-digital-rate-limiter.fly.dev       |
+| Region   | `syd`                                                                               |
+| Machines | 1 × `shared-cpu-1x` 256 MB (`--ha=false`), stopped when idle, auto-start on request |
+| Redis    | `convert-digital-rate-limiter-redis`, Upstash pay-as-you-go, eviction disabled      |
+| Config   | [`fly.toml`](../fly.toml); secrets via `fly secrets`                                |
+| Image    | built in CI, pushed to `registry.fly.io/convert-digital-rate-limiter:<git sha>`     |
 
 ## How a deploy happens
 
