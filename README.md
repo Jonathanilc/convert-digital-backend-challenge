@@ -11,24 +11,18 @@ rate limiting engine for message throttling.
 Start with [`docs/DESIGN.md`](docs/DESIGN.md) for the design and the reasoning behind it, and
 [`packages/rate-limiter/openapi.yaml`](packages/rate-limiter/openapi.yaml) for the HTTP contract.
 
-## Quick start
+## Quick start (Docker)
 
-Requirements: Node 24 (`.nvmrc`), npm 11, Docker (only for Redis).
+Requirements: Docker with Compose v2. Node 24 is only needed for the optional host commands.
 
 ```bash
-nvm use
-npm ci
-
-# Unit + component tests (no Redis needed: the component suite injects ioredis-mock)
-npm test
-
-# Integration tests as well, against a real Redis in Docker
-npm run redis:up
-npm run test:integration
-
-# Run the demo API on http://localhost:3000 (needs the Redis above)
-npm run dev:rate-limiter
+npm run dev          # app with hot reload + Redis  →  http://localhost:3000
+npm test             # the whole test suite, inside Docker, against the compose Redis
+npm run test:smoke   # build the production image, start it, run the black-box smoke suite
+npm run prod:down    # stop the production stack started by test:smoke / prod:up
 ```
+
+Something else on port 3000 or 6379? Set `APP_PORT` / `REDIS_PORT`, e.g. `APP_PORT=3100 npm run dev`.
 
 Try it:
 
@@ -47,23 +41,26 @@ curl -X POST http://localhost:3000/admin/overrides \
 
 ## Scripts
 
-| Command                           | Purpose                                                                                      |
-| --------------------------------- | -------------------------------------------------------------------------------------------- |
-| `npm test`                        | Unit + component tests in every workspace (integration tests skip unless `REDIS_URL` is set) |
-| `npm run test:integration`        | Same, with `REDIS_URL` defaulting to the Docker Redis                                        |
-| `npm run test:coverage`           | Tests with V8 coverage                                                                       |
-| `npm run typecheck`               | `tsc --noEmit` across sources and tests                                                      |
-| `npm run build`                   | Emit `dist/` per package                                                                     |
-| `npm run openapi:types`           | Regenerate TypeScript types from `openapi.yaml` (CI fails if the checked-in file is stale)   |
-| `npm run format` / `format:check` | Prettier                                                                                     |
-| `npm run redis:up` / `redis:down` | Redis 7 via Docker Compose                                                                   |
+| Command                                   | Purpose                                                                                   |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `npm run dev` / `dev:down`                | App (hot reload) + Redis in Docker                                                        |
+| `npm test`                                | Full suite inside the dev image against the compose Redis (what CI runs)                  |
+| `npm run test:host`                       | Same suite with Vitest on the host; needs `npm run redis:up`                              |
+| `npm run test:smoke`                      | Build the runtime image, start it with Redis, run `test/smoke` against it                 |
+| `npm run prod:up` / `prod:down`           | Run the production image locally                                                          |
+| `npm run check`                           | `format:check` + `openapi:check` + `typecheck` + `test:host` (CI runs this inside Docker) |
+| `npm run openapi:types` / `openapi:check` | Regenerate / verify the TypeScript types generated from `openapi.yaml`                    |
+| `npm run redis:up` / `redis:down`         | Only Redis, for host-side work                                                            |
+| `npm run build`, `typecheck`, `format`    | The usual                                                                                 |
 
 ## Repository layout
 
 ```
 docs/DESIGN.md                      design & decisions
-docker-compose.yml                  Redis for local runs and integration tests
-.github/workflows/ci.yml            format, generated-types check, typecheck, tests (with Redis), build
+Dockerfile                          deps → dev | build → runtime (the deployable image)
+compose.yaml                        local development: redis, app, test runner
+compose.prod.yaml                   production image + redis + smoke runner
+.github/workflows/ci.yml            check pipeline in Docker; runtime image smoke test
 packages/rate-limiter/              Option 1 (see its README)
 ```
 
@@ -73,11 +70,14 @@ packages/rate-limiter/              Option 1 (see its README)
   (`docs/DESIGN.md`), and the HTTP surface was specified in `openapi.yaml` before any route existed.
 - **Contract first**: the OpenAPI document drives request validation, security enforcement,
   response validation in tests, generated TypeScript types, and the served `/openapi.json`.
-- **Test-driven**: every module was written against a failing test. The same behavioural
-  contract suites run against the in-memory store, `ioredis-mock` and a real Redis.
+- **Test-driven**: every module was written against a failing test; the git history keeps the
+  red/green pairs.
+- **Real infrastructure in tests**: every Redis-touching test runs against a real Redis, and the
+  API suite serves `createApp()` on a real port and talks to it over real HTTP. Only the clock,
+  the id generator and the Redis client wrapper are injected. A black-box smoke suite then runs
+  against the production image.
 - **Dependency injection from the top**: `createApp({ config, redis, clock, ids, logger })`
-  receives everything from the composition root (`server.ts`), so the whole application is
-  exercised over HTTP in tests by injecting a mock Redis server and a fake clock.
+  receives everything from the composition root (`server.ts`).
 
 ## Dependency versions
 
@@ -86,5 +86,5 @@ All dependencies are on their current major versions except where a peer depende
 | Package       | Version used | Note                                                                                                    |
 | ------------- | ------------ | ------------------------------------------------------------------------------------------------------- |
 | TypeScript    | 5.9          | `openapi-typescript` declares a `^5` peer; TypeScript 7 (native compiler) is otherwise ready to drop in |
-| ioredis       | 5.11         | `ioredis-mock`, the injectable mock server, declares a `^5` peer                                        |
-| `@types/node` | 24           | matches the Node 24 LTS runtime in `.nvmrc`                                                             |
+| ioredis       | 6.0          | current major                                                                                           |
+| `@types/node` | 24           | matches the Node 24 LTS runtime in `.nvmrc` and the Docker base image                                   |

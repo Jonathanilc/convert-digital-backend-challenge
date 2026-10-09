@@ -20,9 +20,11 @@ The design and its trade-offs are documented in [`../../docs/DESIGN.md`](../../d
 
 ## Demo API
 
+From the repository root:
+
 ```bash
-cp .env.example .env            # optional, defaults work out of the box
-npm run dev                     # http://localhost:3000, needs Redis (npm run redis:up at the root)
+npm run dev                     # app + Redis in Docker, hot reload, http://localhost:3000
+cp packages/rate-limiter/.env.example .env   # optional: compose passes .env to the app
 ```
 
 | Route                                    | Unauthenticated                  | Authenticated | Algorithm    |
@@ -146,21 +148,23 @@ The decision is exposed on `res.locals.rateLimit`.
 
 ## Testing
 
+From the repository root:
+
 ```bash
-npm test                                   # unit + component (ioredis-mock), ~1s, no Redis
-REDIS_URL=redis://localhost:6379 npm test  # + integration suites on real Redis
-npm run test:coverage
+npm test                      # everything, inside Docker, against the compose Redis
+npm run test:smoke            # production image + black-box smoke suite
+npm run redis:up && npm run test:host   # Vitest on the host (REDIS_URL defaults to localhost:6379)
 ```
 
-| Layer          | Backend                              | Clock                   | Proves                                                      |
-| -------------- | ------------------------------------ | ----------------------- | ----------------------------------------------------------- |
-| Unit           | `MemoryStore`, stub stores           | fake                    | engine: tiers, rules, overrides, fail open/closed           |
-| Store contract | memory, ioredis-mock, real Redis     | fake                    | identical behaviour, atomicity under 50 concurrent requests |
-| Component      | `createApp` + ioredis-mock over HTTP | fake                    | full behaviour and OpenAPI conformance of every response    |
-| Integration    | real Redis                           | fake clock, real server | the Lua scripts on a real server; same suites as above      |
+| Layer                  | Runs where                                                    | Clock | Proves                                                                                 |
+| ---------------------- | ------------------------------------------------------------- | ----- | -------------------------------------------------------------------------------------- |
+| Pure logic             | in process, no I/O                                            | fake  | engine, rules, override precedence, config, header/identity helpers, `MemoryStore`     |
+| Store contracts        | real Redis                                                    | fake  | memory and Redis stores behave identically; atomicity under 50 concurrent requests     |
+| API suite (`test/app`) | `createApp` on a real port, real Redis, real HTTP via `fetch` | fake  | full behaviour and OpenAPI conformance of every response, outages via a wrapped client |
+| Smoke (`test/smoke`)   | black box against `APP_URL`, normally the runtime image       | real  | the deployable artefact end to end                                                     |
 
-The application receives every dependency through `createApp({ config, redis, clock, ids, logger })`;
-`src/demo/server.ts` is the only composition root.
+Tests fail fast with a hint if Redis is unreachable. Each test uses a unique key prefix, so the
+parallel workers share one Redis safely, and leftovers under `test:*` are swept at start-up.
 
 ## Project layout
 
@@ -172,7 +176,9 @@ src/overrides/               matching/precedence, MemoryOverrideStore, RedisOver
 src/express/                 rateLimit() middleware, identity strategies, headers
 src/demo/                    createApp, auth, admin API, config, server (composition root)
 src/demo/generated/          types generated from openapi.yaml (npm run openapi:types)
-test/                        contract, unit, component (app/), integration suites
+test/                        contract, pure-logic, store, API and smoke suites + helpers
+vitest.config.ts             main suite (global setup checks Redis)
+vitest.smoke.config.ts       smoke suite (needs only APP_URL)
 ```
 
 ## Notes and limitations

@@ -11,6 +11,8 @@ this document explains the model behind it and the decisions taken.
 - Redis as the shared store so many app instances enforce one limit.
 - Limits configurable per endpoint and per tier (unauthenticated vs authenticated, extensible).
 - Bonus: a sliding-log algorithm and temporary overrides for special events or support cases.
+- Everything runs in containers: development, tests and the deployable image come from one
+  Dockerfile, so the path to deployment is already paved.
 - The engine is framework-agnostic so a future WebSocket chat server (Option 2) can reuse it
   for message-spam throttling.
 
@@ -19,8 +21,10 @@ this document explains the model behind it and the decisions taken.
 ```
 .
 ├── docs/DESIGN.md                 this document
-├── docker-compose.yml             Redis for local runs and integration tests
-├── .github/workflows/ci.yml       typecheck, format, unit + component + integration tests
+├── Dockerfile                     multi-stage: deps → dev | build → runtime
+├── compose.yaml                   local development: redis, app (hot reload), test runner
+├── compose.prod.yaml              the runtime image + redis, plus the black-box smoke runner
+├── .github/workflows/ci.yml       check pipeline in Docker; runtime image smoke test
 └── packages/
     └── rate-limiter/
         ├── openapi.yaml           the HTTP contract (source of truth)
@@ -32,9 +36,11 @@ this document explains the model behind it and the decisions taken.
         │   └── demo/              createApp(deps) + server.ts composition root
         └── test/
             ├── contract/          OpenAPI document tests
-            ├── core/ stores/ overrides/ express/   unit tests (fake clock, no I/O)
-            ├── app/               component tests: createApp + ioredis-mock, over HTTP
-            └── integration/       the same suites against real Redis (REDIS_URL)
+            ├── core/ overrides/ express/ demo/   pure logic tests (no I/O)
+            ├── stores/            store contract: memory and real Redis
+            ├── app/               API suite: createApp on a real port, real Redis, real HTTP
+            ├── smoke/             black-box suite against a running instance (APP_URL)
+            └── helpers/           fake clock, Redis + HTTP helpers, contract assertions
 ```
 
 An npm workspace is used so Option 2 can be added as `packages/chat-server` depending on
@@ -60,7 +66,7 @@ effects itself:
 ```ts
 interface AppDependencies {
   config: AppConfig; // plain data, built from env by server.ts
-  redis: Redis; // ioredis client: real, or ioredis-mock in tests
+  redis: Redis; // ioredis client; tests wrap a real one so outages can be simulated
   clock?: () => number; // defaults to Date.now
   ids?: () => string; // override id generator, defaults to randomUUID
   logger?: Logger; // defaults to console
@@ -68,8 +74,9 @@ interface AppDependencies {
 ```
 
 `server.ts` is the only composition root: it reads the environment, creates the Redis client,
-calls `createApp`, listens, and handles shutdown. Component tests call `createApp` with an
-`ioredis-mock` instance and a fake clock and exercise the whole application over HTTP.
+calls `createApp`, listens, and handles shutdown. The API suite calls `createApp` with a real
+Redis client, a fake clock and a deterministic id generator, serves it on an ephemeral port and
+drives it with real HTTP requests.
 
 ### Request flow
 
@@ -77,7 +84,8 @@ calls `createApp`, listens, and handles shutdown. Component tests call `createAp
 2. The engine picks the first endpoint rule whose path and method match, else the default rule.
 3. It picks the limit for the tier from the rule, falling back to the global tier defaults.
 4. It asks the override provider for an active override and applies its effect.
-5. It calls `store.consume(key, { limit, windowMs, algorithm })`, which is atomic per key; the store reads the injected clock.
+5. It calls `store.consume(key, { limit, windowMs, algorithm })`, which is atomic per key; the
+   store reads the injected clock.
 6. The middleware writes `RateLimit-*` headers and calls `next()` or answers `429`.
 
 ## 4. Rate limiting model
@@ -152,11 +160,11 @@ are removed opportunistically on refresh.
    parameters, bodies, and the `bearerAuth` / `adminToken` security requirements.
 2. **Response validation** in test and development (`validateResponses`), off in production.
 3. **Generated TypeScript types** (`openapi-typescript`) that handlers are written against;
-   CI regenerates and fails on a diff.
+   `npm run openapi:check` fails when the checked-in file is stale.
 4. **Served document** at `GET /openapi.json`.
 5. **Test assertions**: document validity, structural invariants (every `/api` operation
    documents `429` and `503`, every `2xx` carries `RateLimit-*` headers), and schema checks on
-   the limiter's own `429` / `503` responses.
+   every response the API and smoke suites receive.
 
 ### Middleware order
 
@@ -182,52 +190,79 @@ A blocked request also gets `Retry-After`.
 - **Override lookup fails**: base limits apply; the API never goes down because of overrides.
 - The Redis client is configured to fail within about one second (`maxRetriesPerRequest: 1`,
   `commandTimeout: 1000`) rather than queueing commands while reconnecting.
+- `GET /health` reports `degraded` with `checks.redis = down` while Redis is unreachable; the
+  container healthcheck keeps the instance marked healthy because it can still serve (fail-open).
 
 ## 8. Time
 
 The application clock is injected and passed to the Lua scripts as an argument; Redis TTLs are
-only garbage collection. This makes every layer deterministic under a fake clock, including the
-Redis store when run against `ioredis-mock`. Trade-off: clock skew between app instances shifts
+only garbage collection. Every layer is therefore deterministic under a fake clock, including
+the Redis store and the whole API when run against a real Redis: window expiry is tested by
+advancing the clock, never by sleeping. Trade-off: clock skew between app instances shifts
 window boundaries by the skew amount. With NTP that is milliseconds, acceptable for rate
-limiting. Using the Redis server clock (`TIME`) would remove the skew but makes tests
-time-dependent and `ioredis-mock`'s `TIME` is not wall-clock accurate.
+limiting.
 
-## 9. Testing strategy
+## 9. Containers: development, test and deployment
 
-| Layer          | Backend                               | Clock                   | Proves                                                                          |
-| -------------- | ------------------------------------- | ----------------------- | ------------------------------------------------------------------------------- |
-| Unit           | `MemoryStore`, throwing store         | fake                    | engine logic: tiers, rules, overrides, fail open/closed                         |
-| Store contract | memory, ioredis-mock, real Redis      | fake                    | all stores behave identically, including atomicity under 50 concurrent requests |
-| Component      | `createApp` + ioredis-mock, Supertest | fake                    | full HTTP behaviour and contract conformance; no sleeps, no Docker              |
-| Integration    | real Redis (`REDIS_URL`)              | fake clock, real server | the Lua scripts on a real server                                                |
+One `Dockerfile` with four stages:
 
-Integration tests skip when `REDIS_URL` is unset and always run in CI against a Redis service
-container. Implementation followed red-green-refactor: each behaviour was written as a failing
-test before the code that satisfies it.
+| Stage     | Contents                                                                                                                                                        | Used by                                                                                                  |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `deps`    | `npm ci` of the workspace, cached by the lockfile                                                                                                               | the stages below                                                                                         |
+| `dev`     | full source and dev dependencies, `tsx watch`                                                                                                                   | `compose.yaml` `app` (hot reload via bind mount) and `test` services, `compose.prod.yaml` `smoke` runner |
+| `build`   | `tsc` output, dev dependencies pruned                                                                                                                           | intermediate                                                                                             |
+| `runtime` | `dist/`, production `node_modules`, `openapi.yaml`; non-root `node` user; `HEALTHCHECK` on `/health`; `node` is PID 1 so SIGTERM triggers the graceful shutdown | `compose.prod.yaml` `app`; the image to deploy                                                           |
 
-## 10. Tooling and version choices
+`compose.yaml` wires `redis`, `app` and a `test` service so `npm test` runs the suite inside
+the dev image against the compose Redis, exactly as CI does. `compose.prod.yaml` runs the
+runtime image with Redis and a `smoke` runner that executes the black-box suite against it.
+Host ports are configurable (`APP_PORT`, `REDIS_PORT`) so the stack coexists with other local
+services. Bind mounts use anonymous volumes over `node_modules` so Linux and macOS binaries
+never mix.
+
+## 10. Testing strategy
+
+| Layer          | Runs where                                                                   | Clock | Proves                                                                                                        |
+| -------------- | ---------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------- |
+| Pure logic     | in process, no I/O                                                           | fake  | engine, rule matching, override precedence, config, header/identity helpers, `MemoryStore`                    |
+| Store contract | real Redis                                                                   | fake  | memory and Redis stores behave identically, Lua atomicity under 50 concurrent requests                        |
+| Override store | real Redis                                                                   | fake  | snapshot refresh across instances, pruning, failure fallback                                                  |
+| API suite      | `createApp` on a real port, real Redis, real HTTP via `fetch`                | fake  | full behaviour and OpenAPI conformance of every response, including outages via a wrapped client              |
+| Smoke          | black box against a running instance (`APP_URL`), normally the runtime image | real  | the deployable artefact works end to end; the `429` path is exercised with a blocking override, so no waiting |
+
+Vitest's global setup pings Redis once and fails fast with a hint instead of letting suites time
+out; it also removes leftover `test:*` keys. Every test uses a unique key prefix, so parallel
+workers share one Redis safely. Implementation followed red-green-refactor: each behaviour was
+written as a failing test before the code that satisfies it.
+
+## 11. Tooling and version choices
 
 | Package                   | Version | Note                                                                                                                  |
 | ------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------- |
-| Node                      | 24 LTS  | `.nvmrc`; `@types/node` tracks the same major                                                                         |
+| Node                      | 24 LTS  | `.nvmrc`, Docker base image, `@types/node` on the same major                                                          |
 | TypeScript                | 5.9     | TypeScript 7 (native compiler) is `latest`, but `openapi-typescript` declares a `^5` peer; revisit when it supports 7 |
 | Express                   | 5.2     | async error propagation built in                                                                                      |
-| ioredis                   | 5.11    | ioredis 6 is out, but `ioredis-mock` (the injectable mock) declares a `^5` peer                                       |
+| ioredis                   | 6.0     | current major; the earlier pin to 5 existed only for `ioredis-mock`, which is no longer used                          |
 | Vitest                    | 5.0     |                                                                                                                       |
 | express-openapi-validator | 5.6     | Express 5 support since 5.5                                                                                           |
+| Redis                     | 7       | `redis:7-alpine` in compose                                                                                           |
 
-## 11. Extending to Option 2
+## 12. Extending to Option 2
 
 A `packages/chat-server` would depend on this package and call
 `limiter.check({ identity: { key: 'user:'+userId, tier }, path: 'ws:message', method: 'SEND' })`
 per message. The `path`/`method` pair is just a routing key to the engine, so one rule
 `{ id: 'chat-message', path: 'ws:message' }` gives per-user message limits with the same stores,
-overrides and admin API.
+overrides and admin API. It would get its own `dev`/`runtime` targets or a second Dockerfile
+and join `compose.yaml` as another service.
 
-## 12. Known limitations
+## 13. Known limitations
 
 - The sliding log stores one member per allowed request; at very high limits (thousands per
   window) a sliding **window counter** approximation would be cheaper. Not needed here.
 - Override visibility across instances is eventually consistent (bounded by `refreshMs`).
 - The demo's authentication is a static token map; a real deployment would plug in JWT/session
   middleware that sets `req.user`.
+- The runtime image is about 260 MB because `express-openapi-validator` brings a large
+  dependency tree; it could be trimmed by validating only in non-production or by splitting
+  the admin API into its own service.
