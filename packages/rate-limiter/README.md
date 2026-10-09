@@ -23,7 +23,7 @@ The design and its trade-offs are documented in [`../../docs/DESIGN.md`](../../d
 From the repository root:
 
 ```bash
-npm run dev                     # app + Redis in Docker, hot reload, http://localhost:3000
+make dev                        # app + Redis in Docker, hot reload, http://localhost:3000
 cp packages/rate-limiter/.env.example .env   # optional: compose passes .env to the app
 ```
 
@@ -41,7 +41,7 @@ Admin token: `admin-secret`. All configurable, see [`.env.example`](.env.example
 
 ```bash
 # Exhaust the anonymous budget quickly (3 requests/minute) and watch the 429
-UNAUTH_LIMIT=3 UNAUTH_WINDOW_MS=60000 npm run dev
+printf 'UNAUTH_LIMIT=3\nUNAUTH_WINDOW_MS=60000\n' > .env && make dev
 for i in 1 2 3 4; do curl -s -o /dev/null -w '%{http_code} ' localhost:3000/api/public; done
 curl -i localhost:3000/api/public
 # HTTP/1.1 429 Too Many Requests
@@ -151,9 +151,10 @@ The decision is exposed on `res.locals.rateLimit`.
 From the repository root:
 
 ```bash
-npm test                      # everything, inside Docker, against the compose Redis
-npm run test:smoke            # production image + black-box smoke suite
-npm run redis:up && npm run test:host   # Vitest on the host (REDIS_URL defaults to localhost:6379)
+make test                     # everything, inside Docker, against the compose Redis
+make test-watch               # Vitest watch mode inside the container
+make smoke                    # production image + black-box smoke suite
+make redis && npm test        # Vitest on the host (REDIS_URL defaults to localhost:6379)
 ```
 
 | Layer                  | Runs where                                                    | Clock | Proves                                                                                 |

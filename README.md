@@ -13,16 +13,16 @@ Start with [`docs/DESIGN.md`](docs/DESIGN.md) for the design and the reasoning b
 
 ## Quick start (Docker)
 
-Requirements: Docker with Compose v2. Node 24 is only needed for the optional host commands.
+Requirements: Docker with Compose v2 and `make`. Node 24 is only needed for optional host-side runs.
 
 ```bash
-npm run dev          # app with hot reload + Redis  →  http://localhost:3000
-npm test             # the whole test suite, inside Docker, against the compose Redis
-npm run test:smoke   # build the production image, start it, run the black-box smoke suite
-npm run prod:down    # stop the production stack started by test:smoke / prod:up
+make            # list every target
+make dev        # app with hot reload + Redis  →  http://localhost:3000
+make test       # the whole test suite, inside Docker, against the compose Redis
+make smoke      # build the production image, start it, run the black-box smoke suite, tear down
 ```
 
-Something else on port 3000 or 6379? Set `APP_PORT` / `REDIS_PORT`, e.g. `APP_PORT=3100 npm run dev`.
+Something else on port 3000 or 6379? `APP_PORT=3100 make dev`, `REDIS_PORT=6380 make dev`.
 
 Try it:
 
@@ -39,24 +39,29 @@ curl -X POST http://localhost:3000/admin/overrides \
   -d '{"reason":"support ticket","criteria":{"userIds":["alice"],"ruleIds":["search"]},"effect":{"multiplier":2},"ttlSeconds":3600}'
 ```
 
-## Scripts
+## Commands
 
-| Command                                   | Purpose                                                                                   |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `npm run dev` / `dev:down`                | App (hot reload) + Redis in Docker                                                        |
-| `npm test`                                | Full suite inside the dev image against the compose Redis (what CI runs)                  |
-| `npm run test:host`                       | Same suite with Vitest on the host; needs `npm run redis:up`                              |
-| `npm run test:smoke`                      | Build the runtime image, start it with Redis, run `test/smoke` against it                 |
-| `npm run prod:up` / `prod:down`           | Run the production image locally                                                          |
-| `npm run check`                           | `format:check` + `openapi:check` + `typecheck` + `test:host` (CI runs this inside Docker) |
-| `npm run openapi:types` / `openapi:check` | Regenerate / verify the TypeScript types generated from `openapi.yaml`                    |
-| `npm run redis:up` / `redis:down`         | Only Redis, for host-side work                                                            |
-| `npm run build`, `typecheck`, `format`    | The usual                                                                                 |
+`make` owns everything that touches Docker. npm scripts are plain Node tasks that run the same
+way on the host and inside the containers (`npm test`, `npm run check`, `npm run build`, ...).
+
+| Target                                        | Purpose                                                                              |
+| --------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `make dev` / `up` / `down` / `logs` / `shell` | Development stack: app with hot reload + Redis                                       |
+| `make test`                                   | Full suite inside the dev image against the compose Redis                            |
+| `make test-watch`                             | Vitest watch mode inside the container                                               |
+| `make check`                                  | `format:check` + `openapi:check` + `typecheck` + tests, inside Docker. What CI runs. |
+| `make fmt` / `make openapi-types`             | Prettier write / regenerate the types from `openapi.yaml`, inside the container      |
+| `make smoke`                                  | Build the runtime image, start it with Redis, run `test/smoke` against it, tear down |
+| `make prod-up` / `prod-down` / `prod-logs`    | The production image running locally                                                 |
+| `make image IMAGE=tag`                        | Build and tag the runtime image only                                                 |
+| `make redis`                                  | Only Redis, for host-side runs (`npm test` then needs no Docker beyond that)         |
+| `make clean`                                  | Stop both stacks, remove volumes, delete `dist/` and `coverage/`                     |
 
 ## Repository layout
 
 ```
 docs/DESIGN.md                      design & decisions
+Makefile                            local entry points (make = Docker; npm = Node tasks)
 Dockerfile                          deps → dev | build → runtime (the deployable image)
 compose.yaml                        local development: redis, app, test runner
 compose.prod.yaml                   production image + redis + smoke runner

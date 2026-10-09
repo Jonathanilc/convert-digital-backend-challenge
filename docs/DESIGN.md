@@ -21,6 +21,7 @@ this document explains the model behind it and the decisions taken.
 ```
 .
 ├── docs/DESIGN.md                 this document
+├── Makefile                       local entry points: make owns Docker, npm scripts are Node tasks
 ├── Dockerfile                     multi-stage: deps → dev | build → runtime
 ├── compose.yaml                   local development: redis, app (hot reload), test runner
 ├── compose.prod.yaml              the runtime image + redis, plus the black-box smoke runner
@@ -213,8 +214,10 @@ One `Dockerfile` with four stages:
 | `build`   | `tsc` output, dev dependencies pruned                                                                                                                           | intermediate                                                                                             |
 | `runtime` | `dist/`, production `node_modules`, `openapi.yaml`; non-root `node` user; `HEALTHCHECK` on `/health`; `node` is PID 1 so SIGTERM triggers the graceful shutdown | `compose.prod.yaml` `app`; the image to deploy                                                           |
 
-`compose.yaml` wires `redis`, `app` and a `test` service so `npm test` runs the suite inside
-the dev image against the compose Redis, exactly as CI does. `compose.prod.yaml` runs the
+`compose.yaml` wires `redis`, `app` and a `test` service so `make test` runs the suite inside
+the dev image against the compose Redis, exactly as CI does (`make check`). The `Makefile` is the
+single entry point for anything that touches Docker; npm scripts stay plain Node tasks that run
+identically on the host and inside the containers, which is what keeps the two in sync. `compose.prod.yaml` runs the
 runtime image with Redis and a `smoke` runner that executes the black-box suite against it.
 Host ports are configurable (`APP_PORT`, `REDIS_PORT`) so the stack coexists with other local
 services. Bind mounts use anonymous volumes over `node_modules` so Linux and macOS binaries
