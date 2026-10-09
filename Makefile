@@ -20,7 +20,13 @@ COMPOSE      := docker compose
 COMPOSE_PROD := docker compose -f compose.prod.yaml
 PKG          := @challenge/rate-limiter
 
-.PHONY: help dev up down logs shell redis test test-watch check fmt openapi-types image prod-up prod-down prod-logs smoke clean
+# Fly.io: app name comes from fly.toml unless overridden; images are tagged with the git SHA.
+FLY_APP   ?= $(shell sed -n 's/^app *= *"\(.*\)"/\1/p' fly.toml)
+GIT_SHA   ?= $(shell git rev-parse --short HEAD)
+FLY_IMAGE ?= registry.fly.io/$(FLY_APP):$(GIT_SHA)
+APP_URL   ?= https://$(FLY_APP).fly.dev
+
+.PHONY: help dev up down logs shell redis test test-watch check fmt openapi-types image prod-up prod-down prod-logs smoke smoke-remote deploy fly-status fly-logs clean
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*## "; printf "\nUsage: make <target> [APP_PORT=3100] [REDIS_PORT=6380] [IMAGE=tag]\n"} /^##@/ {printf "\n%s\n", substr($$0, 5)} /^[a-zA-Z0-9_-]+:.*## / {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -78,6 +84,23 @@ smoke: ## Build + start the production image, run the black-box smoke suite, tea
 	$(COMPOSE_PROD) up --build --wait app
 	$(COMPOSE_PROD) run --rm --build smoke || { $(COMPOSE_PROD) logs app; $(COMPOSE_PROD) down -v; exit 1; }
 	$(COMPOSE_PROD) down -v
+
+##@ Fly.io (requires `fly auth login`; CI uses FLY_API_TOKEN)
+deploy: ## Build the runtime image for amd64, push it to the Fly registry, deploy that exact image
+	fly auth docker
+	docker build --platform linux/amd64 --target runtime -t $(FLY_IMAGE) .
+	docker push $(FLY_IMAGE)
+	fly deploy --app $(FLY_APP) --image $(FLY_IMAGE) --wait-timeout 5m
+
+smoke-remote: ## Run the black-box smoke suite against APP_URL (default: the Fly app); needs ADMIN_TOKEN
+	$(COMPOSE) run --rm --build --no-deps -e APP_URL=$(APP_URL) -e ADMIN_TOKEN=$(ADMIN_TOKEN) -e SMOKE_VERIFY_CLIENT_IP=true test npm run test:smoke -w $(PKG)
+
+fly-status: ## Machines, health and recent releases of the Fly app
+	fly status --app $(FLY_APP)
+	fly releases --app $(FLY_APP) | head -8
+
+fly-logs: ## Tail the Fly app logs
+	fly logs --app $(FLY_APP)
 
 ##@ Housekeeping
 clean: ## Stop both stacks, remove volumes, delete build and coverage output
