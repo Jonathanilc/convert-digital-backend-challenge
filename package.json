@@ -1,0 +1,27 @@
+{
+  "name": "convert-digital-backend-challenge",
+  "private": true,
+  "description": "Backend coding challenge submission. Option 1 (API rate limiter) lives in packages/rate-limiter; the workspace is laid out so Option 2 (WebSocket chat server) can be added as a sibling package.",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm test --workspaces --if-present",
+    "test:coverage": "npm run test:coverage --workspaces --if-present",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "dev:rate-limiter": "npm run dev -w @challenge/rate-limiter",
+    "redis:up": "docker compose up -d redis",
+    "redis:down": "docker compose down",
+    "openapi:types": "npm run openapi:types --workspaces --if-present",
+    "test:integration": "REDIS_URL=${REDIS_URL:-redis://localhost:6379} npm test --workspaces --if-present"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.9"
+  }
+}

@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+      - name: Generated OpenAPI types are up to date
+        run: |
+          npm run openapi:types
+          git diff --exit-code -- packages/rate-limiter/src/demo/generated
+      - run: npm run typecheck
+      - name: Unit, component and integration tests
+        run: npm test
+        env:
+          REDIS_URL: redis://localhost:6379
+      - run: npm run build
