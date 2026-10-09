@@ -18,6 +18,7 @@ Rate limiting for Express 5 + TypeScript, backed by Redis.
 
 The design and its trade-offs are documented in [`../../docs/DESIGN.md`](../../docs/DESIGN.md).
 Interactive docs (Swagger UI) are served at `/docs`; the raw document at `/openapi.json`.
+Interactive docs (Swagger UI) are served at `/docs`; the raw document at `/openapi.json`.
 
 ## Demo API
 
@@ -28,14 +29,14 @@ make dev                        # app + Redis in Docker, hot reload, http://loca
 cp packages/rate-limiter/.env.example .env   # optional: compose passes .env to the app
 ```
 
-| Route                                    | Unauthenticated                  | Authenticated | Algorithm    |
-| ---------------------------------------- | -------------------------------- | ------------- | ------------ |
-| `GET /api/public` and any other `/api/*` | 100 / hour                       | 200 / hour    | fixed window |
-| `GET /api/search?q=`                     | 20 / minute                      | 60 / minute   | sliding log  |
-| `POST /api/login`                        | 5 / 15 min                       | 5 / 15 min    | fixed window |
-| `GET /api/me`                            | requires bearer token            | 200 / hour    | fixed window |
-| `GET /health`, `GET /openapi.json`       | exempt                           |               |              |
-| `/admin/overrides`                       | exempt, requires `X-Admin-Token` |               |              |
+| Route                                                         | Unauthenticated                  | Authenticated | Algorithm    |
+| ------------------------------------------------------------- | -------------------------------- | ------------- | ------------ |
+| `GET /api/public` and any other `/api/*`                      | 100 / hour                       | 200 / hour    | fixed window |
+| `GET /api/search?q=`                                          | 20 / minute                      | 60 / minute   | sliding log  |
+| `POST /api/login`                                             | 5 / 15 min                       | 5 / 15 min    | fixed window |
+| `GET /api/me`                                                 | requires bearer token            | 200 / hour    | fixed window |
+| `GET /health`, `GET /ready`, `GET /docs`, `GET /openapi.json` | exempt                           |               |              |
+| `/admin/overrides`                                            | exempt, requires `X-Admin-Token` |               |              |
 
 Demo users: `alice` / `wonderland` (token `alice-token`), `bob` / `builder` (token `bob-token`).
 Admin token: `admin-secret`. All configurable, see [`.env.example`](.env.example).
