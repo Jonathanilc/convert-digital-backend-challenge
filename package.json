@@ -9,17 +9,23 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm test --workspaces --if-present",
+    "dev": "docker compose up --build",
+    "dev:down": "docker compose down",
+    "test": "docker compose run --rm --build test",
+    "test:host": "npm run test --workspaces --if-present",
     "test:coverage": "npm run test:coverage --workspaces --if-present",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
-    "dev:rate-limiter": "npm run dev -w @challenge/rate-limiter",
+    "test:smoke": "docker compose -f compose.prod.yaml run --rm --build smoke",
+    "prod:up": "docker compose -f compose.prod.yaml up --build --wait app",
+    "prod:down": "docker compose -f compose.prod.yaml down -v",
     "redis:up": "docker compose up -d redis",
     "redis:down": "docker compose down",
+    "check": "npm run format:check && npm run openapi:check && npm run typecheck && npm run test:host",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
     "openapi:types": "npm run openapi:types --workspaces --if-present",
-    "test:integration": "REDIS_URL=${REDIS_URL:-redis://localhost:6379} npm test --workspaces --if-present"
+    "openapi:check": "npm run openapi:check --workspaces --if-present",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "devDependencies": {
     "prettier": "^3.9.9"

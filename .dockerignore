@@ -1,0 +1,11 @@
+.git
+.github
+node_modules
+**/node_modules
+**/dist
+**/coverage
+docs
+**/*.md
+.env
+.DS_Store
+**/* 2.*

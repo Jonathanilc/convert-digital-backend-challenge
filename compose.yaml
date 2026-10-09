@@ -1,0 +1,52 @@
+# Local development. Everything runs in containers:
+#   npm run dev        app (hot reload) + redis
+#   npm test           the whole test suite inside the dev image, against the compose redis
+#   npm run redis:up   only redis, for running tests or the app on the host (npm run test:host)
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  app:
+    build:
+      context: .
+      target: dev
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - '${APP_PORT:-3000}:3000'
+    environment:
+      REDIS_URL: redis://redis:6379
+      PORT: '3000'
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - .:/app
+      # Keep the image's Linux node_modules; never mix them with the host's.
+      - /app/node_modules
+      - /app/packages/rate-limiter/node_modules
+
+  test:
+    profiles: [test]
+    build:
+      context: .
+      target: dev
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379
+      CI: 'true'
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/packages/rate-limiter/node_modules
+    command: npm run test:host

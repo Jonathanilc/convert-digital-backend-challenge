@@ -1,0 +1,44 @@
+# The production image, run locally, plus a black-box smoke suite against it.
+#   npm run prod:up      build the runtime image, start app + redis, wait until healthy
+#   npm run test:smoke   run test/smoke against http://app:3000
+#   npm run prod:down
+name: convert-digital-challenge-prod
+
+services:
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  app:
+    build:
+      context: .
+      target: runtime
+    image: convert-digital/rate-limiter:local
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - '${APP_PORT:-3000}:3000'
+    environment:
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: production
+    env_file:
+      - path: .env
+        required: false
+
+  smoke:
+    profiles: [smoke]
+    build:
+      context: .
+      target: dev
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      APP_URL: http://app:3000
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-admin-secret}
+    command: npm run test:smoke -w @challenge/rate-limiter
