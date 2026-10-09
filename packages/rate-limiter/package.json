@@ -1,7 +1,7 @@
 {
   "name": "@challenge/rate-limiter",
   "version": "0.1.0",
-  "description": "Redis-backed rate limiting for Express (fixed window + sliding log, per-endpoint and per-tier limits, temporary overrides) with an OpenAPI-first demo API.",
+  "description": "Redis-backed rate limiting for Express (fixed window + sliding log, per-endpoint and per-tier limits, temporary overrides) with an OpenAPI-first demo API. Tests run against real Redis over a real HTTP server.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -22,28 +22,26 @@
     "test:coverage": "vitest run --coverage",
     "openapi:types": "openapi-typescript openapi.yaml -o src/demo/generated/openapi.d.ts",
     "dev": "tsx watch src/demo/server.ts",
-    "start": "node dist/demo/server.js"
+    "start": "node dist/demo/server.js",
+    "test:smoke": "vitest run --config vitest.smoke.config.ts",
+    "openapi:check": "openapi-typescript openapi.yaml -o /tmp/openapi.check.d.ts >/dev/null && cmp -s /tmp/openapi.check.d.ts src/demo/generated/openapi.d.ts || { echo 'Generated OpenAPI types are stale: run npm run openapi:types'; exit 1; }"
   },
   "dependencies": {
     "express": "^5.2.1",
     "express-openapi-validator": "^5.6.2",
-    "ioredis": "^5.11.1",
+    "ioredis": "^6.0.0",
     "path-to-regexp": "^8.4.2",
     "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "^13.1.0",
     "@types/express": "^5.0.6",
-    "@types/ioredis-mock": "^8.2.8",
     "@types/node": "^24.19.1",
-    "@types/supertest": "^7.2.1",
     "@vitest/coverage-v8": "^5.0.3",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
-    "ioredis-mock": "^8.13.1",
     "openapi-types": "^12.1.3",
     "openapi-typescript": "^7.13.0",
-    "supertest": "^7.3.1",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vitest": "^5.0.3"

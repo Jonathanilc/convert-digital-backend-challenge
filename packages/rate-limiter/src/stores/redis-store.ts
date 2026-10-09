@@ -39,7 +39,7 @@ export const DEFAULT_REDIS_OPTIONS: RedisOptions = {
   enableOfflineQueue: true,
 };
 
-/** Anything that quacks like an ioredis client, including `ioredis-mock`. */
+/** Anything that quacks like an ioredis client, including proxies that wrap one. */
 export function isRedisClient(value: unknown): value is Redis {
   return (
     typeof value === 'object' &&

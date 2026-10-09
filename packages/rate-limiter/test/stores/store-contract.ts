@@ -1,17 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { RateLimitStore } from '../../src/core/types.js';
 import { fakeClock, type FakeClock } from '../helpers/clock.js';
+import { testPrefix } from '../helpers/redis.js';
 
 export interface StoreFactory {
   (clock: FakeClock): Promise<RateLimitStore> | RateLimitStore;
 }
 
-let keyCounter = 0;
-const uniqueKey = (label: string) => `contract:${label}:${Date.now()}:${keyCounter++}`;
+const uniqueKey = (label: string) => testPrefix(`store-${label}`);
 
 /**
  * Behavioural contract every RateLimitStore must satisfy. Running the same suite against the
- * memory store, ioredis-mock and real Redis is what lets the app treat them as interchangeable.
+ * memory store and real Redis is what lets the app treat them as interchangeable.
  */
 export function runStoreContract(name: string, makeStore: StoreFactory): void {
   describe(`${name}: RateLimitStore contract`, () => {

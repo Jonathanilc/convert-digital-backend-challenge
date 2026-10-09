@@ -1,48 +1,57 @@
 import { Redis } from 'ioredis';
-import RedisMock from 'ioredis-mock';
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { RedisStore } from '../../src/stores/redis-store.js';
 import { fakeClock } from '../helpers/clock.js';
+import { connect, testPrefix } from '../helpers/redis.js';
 import { runStoreContract } from './store-contract.js';
 
+const clients: Redis[] = [];
+afterAll(async () => {
+  await Promise.all(clients.map((c) => c.quit()));
+});
+const client = (): Redis => {
+  const c = connect();
+  clients.push(c);
+  return c;
+};
+
 runStoreContract(
-  'RedisStore (ioredis-mock)',
-  (clock) => new RedisStore(new RedisMock(), { now: clock.now }),
+  'RedisStore (real Redis)',
+  (clock) => new RedisStore(client(), { now: clock.now }),
 );
 
 describe('RedisStore specifics', () => {
   it('uses a hash with a TTL for fixed windows and a sorted set for sliding logs', async () => {
-    const redis = new RedisMock();
-    const clock = fakeClock();
-    const store = new RedisStore(redis, { now: clock.now });
+    const redis = client();
+    const store = new RedisStore(redis, { now: fakeClock().now });
+    const prefix = testPrefix('types');
 
-    await store.consume('k:fw', { limit: 5, windowMs: 1_000, algorithm: 'fixed-window' });
-    await store.consume('k:sl', { limit: 5, windowMs: 1_000, algorithm: 'sliding-log' });
+    await store.consume(`${prefix}:fw`, { limit: 5, windowMs: 1_000, algorithm: 'fixed-window' });
+    await store.consume(`${prefix}:sl`, { limit: 5, windowMs: 1_000, algorithm: 'sliding-log' });
 
-    expect(await redis.type('k:fw')).toBe('hash');
-    expect(await redis.type('k:sl')).toBe('zset');
-    expect(await redis.pttl('k:fw')).toBeGreaterThan(0);
-    expect(await redis.pttl('k:sl')).toBeGreaterThan(0);
-    await redis.quit();
+    expect(await redis.type(`${prefix}:fw`)).toBe('hash');
+    expect(await redis.type(`${prefix}:sl`)).toBe('zset');
+    expect(await redis.pttl(`${prefix}:fw`)).toBeGreaterThan(0);
+    expect(await redis.pttl(`${prefix}:sl`)).toBeGreaterThan(0);
+    await redis.del(`${prefix}:fw`, `${prefix}:sl`);
   });
 
   it('does not close a client it was given', async () => {
-    const redis = new RedisMock();
+    const redis = client();
     const quit = vi.spyOn(redis, 'quit');
-    const store = new RedisStore(redis);
-    await store.close();
+    await new RedisStore(redis).close();
     expect(quit).not.toHaveBeenCalled();
-    await redis.quit();
+    quit.mockRestore();
   });
 
   it('closes a client it created from a URL', async () => {
     const store = new RedisStore('redis://127.0.0.1:1', { onError: () => undefined });
-    const client = (store as unknown as { redis: Redis }).redis;
-    expect(client).toBeInstanceOf(Redis);
-    const quit = vi.spyOn(client, 'quit').mockResolvedValue('OK');
+    const owned = (store as unknown as { redis: Redis }).redis;
+    expect(owned).toBeInstanceOf(Redis);
+    const quit = vi.spyOn(owned, 'quit').mockResolvedValue('OK');
     await store.close();
     expect(quit).toHaveBeenCalledOnce();
-    client.disconnect();
+    owned.disconnect();
   });
 
   it('propagates backend failures to the caller instead of swallowing them', async () => {

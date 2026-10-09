@@ -1,11 +1,11 @@
 import express, { type ErrorRequestHandler, type Request, type RequestHandler } from 'express';
-import request from 'supertest';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RateLimiter } from '../../src/core/rate-limiter.js';
 import type { RateLimiterOptions, RateLimitStore, TierLimits } from '../../src/core/types.js';
 import { rateLimit, type RateLimitMiddlewareOptions } from '../../src/express/middleware.js';
 import { MemoryStore } from '../../src/stores/memory-store.js';
 import { fakeClock } from '../helpers/clock.js';
+import { startServer } from '../helpers/http.js';
 
 const limits: TierLimits = {
   unauthenticated: { limit: 2, windowMs: 1_000 },
@@ -27,41 +27,53 @@ const errors: ErrorRequestHandler = (err, _req, res, _next) => {
   res.status(500).json({ error: (err as Error).message });
 };
 
-function build(
+const cleanups: Array<() => Promise<void>> = [];
+afterEach(async () => {
+  while (cleanups.length > 0) await cleanups.pop()!();
+});
+
+/** Builds an app around the middleware and serves it on a real port. */
+async function build(
   limiterOptions: Partial<RateLimiterOptions> = {},
   middleware: Partial<RateLimitMiddlewareOptions> = {},
-  app: { trustProxy?: boolean; mountAt?: string } = {},
+  options: { trustProxy?: boolean; mountAt?: string } = {},
 ) {
   const clock = fakeClock();
   const store = new MemoryStore({ now: clock.now, sweepIntervalMs: 0 });
   const limiter = new RateLimiter({ store, limits, now: clock.now, ...limiterOptions });
-  const server = express();
-  if (app.trustProxy) server.set('trust proxy', true);
-  server.use(demoAuth);
+  const app = express();
+  if (options.trustProxy) app.set('trust proxy', true);
+  app.use(demoAuth);
 
   const guard = rateLimit({ limiter, ...middleware });
-  if (app.mountAt) {
+  if (options.mountAt) {
     const router = express.Router();
     router.use(guard);
     router.get('/search', echo);
     router.get('/public', echo);
-    server.use(app.mountAt, router);
+    app.use(options.mountAt, router);
   } else {
-    server.use(guard);
-    server.get('/api/public', echo);
-    server.get('/api/search', echo);
-    server.get('/health', echo);
+    app.use(guard);
+    app.get('/api/public', echo);
+    app.get('/api/search', echo);
+    app.get('/health', echo);
   }
-  server.use(errors);
-  return { app: server, clock, store, limiter };
+  app.use(errors);
+
+  const running = await startServer(app);
+  cleanups.push(running.close);
+  return { api: running.api, clock, store, limiter };
 }
+
+const asAlice = { headers: { authorization: 'Bearer alice-token' } };
+const from = (ip: string) => ({ headers: { 'x-forwarded-for': ip } });
 
 describe('rateLimit middleware', () => {
   it('allows requests up to the limit, then answers 429 with Retry-After and a JSON body', async () => {
-    const { app } = build();
-    await request(app).get('/api/public').expect(200);
-    await request(app).get('/api/public').expect(200);
-    const res = await request(app).get('/api/public').expect(429);
+    const { api } = await build();
+    await api.get('/api/public', { expect: 200 });
+    await api.get('/api/public', { expect: 200 });
+    const res = await api.get('/api/public', { expect: 429 });
 
     expect(res.headers).toMatchObject({
       'ratelimit-limit': '2',
@@ -80,8 +92,8 @@ describe('rateLimit middleware', () => {
   });
 
   it('describes the remaining budget on allowed responses and recovers after the window', async () => {
-    const { app, clock } = build();
-    const first = await request(app).get('/api/public').expect(200);
+    const { api, clock } = await build();
+    const first = await api.get('/api/public', { expect: 200 });
     expect(first.headers).toMatchObject({
       'ratelimit-limit': '2',
       'ratelimit-remaining': '1',
@@ -89,24 +101,21 @@ describe('rateLimit middleware', () => {
     });
     expect(first.headers['retry-after']).toBeUndefined();
 
-    await request(app).get('/api/public').expect(200);
-    await request(app).get('/api/public').expect(429);
+    await api.get('/api/public', { expect: 200 });
+    await api.get('/api/public', { expect: 429 });
     clock.advance(1_000);
-    await request(app).get('/api/public').expect(200);
+    await api.get('/api/public', { expect: 200 });
   });
 
   it('gives authenticated callers their own budget and the higher limit', async () => {
-    const { app } = build();
+    const { api } = await build();
     for (let i = 0; i < 4; i++) {
-      const res = await request(app)
-        .get('/api/public')
-        .set('Authorization', 'Bearer alice-token')
-        .expect(200);
+      const res = await api.get('/api/public', { ...asAlice, expect: 200 });
       expect(res.headers['ratelimit-limit']).toBe('4');
     }
-    await request(app).get('/api/public').set('Authorization', 'Bearer alice-token').expect(429);
+    await api.get('/api/public', { ...asAlice, expect: 429 });
     // The anonymous budget from the same IP is untouched.
-    await request(app).get('/api/public').expect(200);
+    await api.get('/api/public', { expect: 200 });
   });
 
   it('matches endpoint rules against the full path even when mounted on a router', async () => {
@@ -117,29 +126,29 @@ describe('rateLimit middleware', () => {
         limits: { unauthenticated: { limit: 1, windowMs: 1_000 } },
       },
     ];
-    const { app } = build({ endpoints }, {}, { mountAt: '/api' });
-    const first = await request(app).get('/api/search').expect(200);
+    const { api } = await build({ endpoints }, {}, { mountAt: '/api' });
+    const first = await api.get('/api/search', { expect: 200 });
     expect(first.body.key).toBe('rl:fw:search:ip:127.0.0.1');
-    await request(app).get('/api/search').expect(429);
-    await request(app).get('/api/public').expect(200);
+    await api.get('/api/search', { expect: 429 });
+    await api.get('/api/public', { expect: 200 });
   });
 
   it('exempts requests through skip and sends no headers for them', async () => {
-    const { app } = build({}, { skip: (req) => req.path === '/health' });
+    const { api } = await build({}, { skip: (req) => req.path === '/health' });
     for (let i = 0; i < 5; i++) {
-      const res = await request(app).get('/health').expect(200);
+      const res = await api.get('/health', { expect: 200 });
       expect(res.headers['ratelimit-limit']).toBeUndefined();
     }
   });
 
   it('supports legacy header styles', async () => {
-    const legacy = build({}, { headers: 'legacy' });
-    const res = await request(legacy.app).get('/api/public').expect(200);
+    const legacy = await build({}, { headers: 'legacy' });
+    const res = await legacy.api.get('/api/public', { expect: 200 });
     expect(res.headers['x-ratelimit-limit']).toBe('2');
     expect(res.headers['ratelimit-limit']).toBeUndefined();
 
-    const none = build({}, { headers: 'none' });
-    const quiet = await request(none.app).get('/api/public').expect(200);
+    const none = await build({}, { headers: 'none' });
+    const quiet = await none.api.get('/api/public', { expect: 200 });
     expect(quiet.headers['x-ratelimit-limit']).toBeUndefined();
     expect(quiet.headers['ratelimit-limit']).toBeUndefined();
   });
@@ -148,38 +157,26 @@ describe('rateLimit middleware', () => {
     const onLimited = vi.fn((_req, res, decision) => {
       res.status(429).type('text/plain').send(`slow down, retry in ${decision.retryAfterMs}ms`);
     });
-    const { app } = build({}, { onLimited });
-    await request(app).get('/api/public');
-    await request(app).get('/api/public');
-    const res = await request(app).get('/api/public').expect(429);
+    const { api } = await build({}, { onLimited });
+    await api.get('/api/public');
+    await api.get('/api/public');
+    const res = await api.get('/api/public', { expect: 429 });
     expect(res.text).toBe('slow down, retry in 1000ms');
     expect(res.headers['retry-after']).toBe('1');
     expect(onLimited).toHaveBeenCalledOnce();
   });
 
   it('separates anonymous clients by forwarded IP only when the app trusts its proxy', async () => {
-    const trusting = build({}, {}, { trustProxy: true });
-    await request(trusting.app)
-      .get('/api/public')
-      .set('X-Forwarded-For', '198.51.100.1')
-      .expect(200);
-    await request(trusting.app)
-      .get('/api/public')
-      .set('X-Forwarded-For', '198.51.100.1')
-      .expect(200);
-    await request(trusting.app)
-      .get('/api/public')
-      .set('X-Forwarded-For', '198.51.100.1')
-      .expect(429);
-    await request(trusting.app)
-      .get('/api/public')
-      .set('X-Forwarded-For', '198.51.100.2')
-      .expect(200);
+    const trusting = await build({}, {}, { trustProxy: true });
+    await trusting.api.get('/api/public', { ...from('198.51.100.1'), expect: 200 });
+    await trusting.api.get('/api/public', { ...from('198.51.100.1'), expect: 200 });
+    await trusting.api.get('/api/public', { ...from('198.51.100.1'), expect: 429 });
+    await trusting.api.get('/api/public', { ...from('198.51.100.2'), expect: 200 });
 
-    const naive = build();
-    await request(naive.app).get('/api/public').set('X-Forwarded-For', '198.51.100.1').expect(200);
-    await request(naive.app).get('/api/public').set('X-Forwarded-For', '198.51.100.2').expect(200);
-    await request(naive.app).get('/api/public').set('X-Forwarded-For', '198.51.100.3').expect(429);
+    const naive = await build();
+    await naive.api.get('/api/public', { ...from('198.51.100.1'), expect: 200 });
+    await naive.api.get('/api/public', { ...from('198.51.100.2'), expect: 200 });
+    await naive.api.get('/api/public', { ...from('198.51.100.3'), expect: 429 });
   });
 
   const broken: RateLimitStore = {
@@ -191,15 +188,15 @@ describe('rateLimit middleware', () => {
 
   it('fails open without RateLimit headers when the store is down', async () => {
     const onStoreError = vi.fn();
-    const { app } = build({ store: broken, onStoreError });
-    const res = await request(app).get('/api/public').expect(200);
+    const { api } = await build({ store: broken, onStoreError });
+    const res = await api.get('/api/public', { expect: 200 });
     expect(res.headers['ratelimit-limit']).toBeUndefined();
     expect(onStoreError).toHaveBeenCalled();
   });
 
   it('fails closed with 503 and Retry-After when configured', async () => {
-    const { app } = build({ store: broken, failurePolicy: 'closed' });
-    const res = await request(app).get('/api/public').expect(503);
+    const { api } = await build({ store: broken, failurePolicy: 'closed' });
+    const res = await api.get('/api/public', { expect: 503 });
     expect(res.headers['retry-after']).toBe('1');
     expect(res.body).toEqual({
       error: 'Service Unavailable',
@@ -209,13 +206,13 @@ describe('rateLimit middleware', () => {
   });
 
   it('exposes the decision to downstream handlers via res.locals', async () => {
-    const { app } = build();
-    const res = await request(app).get('/api/public').expect(200);
+    const { api } = await build();
+    const res = await api.get('/api/public', { expect: 200 });
     expect(res.body.key).toBe('rl:fw:default:ip:127.0.0.1');
   });
 
   it('forwards identify failures to the Express error handler', async () => {
-    const { app } = build(
+    const { api } = await build(
       {},
       {
         identify: () => {
@@ -223,7 +220,7 @@ describe('rateLimit middleware', () => {
         },
       },
     );
-    const res = await request(app).get('/api/public').expect(500);
+    const res = await api.get('/api/public', { expect: 500 });
     expect(res.body).toEqual({ error: 'no identity' });
   });
 });

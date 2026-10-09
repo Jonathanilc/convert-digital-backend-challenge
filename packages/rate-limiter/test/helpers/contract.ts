@@ -4,7 +4,7 @@ import addFormatsModule from 'ajv-formats';
 // ajv-formats is CommonJS with `module.exports = plugin`; under NodeNext the default import is
 // typed as the namespace while the runtime value is the plugin function itself.
 const addFormats = addFormatsModule as unknown as typeof addFormatsModule.default;
-import type { Response } from 'supertest';
+import type { HttpResponse } from './http.js';
 import { expect } from 'vitest';
 import { loadOpenApiDocument, type LoadedDocument } from './openapi.js';
 
@@ -30,7 +30,11 @@ function validate(schema: Schema, value: unknown, label: string): void {
  * the status is documented, every documented header is present and well-formed, and the
  * body validates against the documented JSON schema (or is empty when none is documented).
  */
-export async function expectContract(res: Response, method: string, path: string): Promise<void> {
+export async function expectContract(
+  res: HttpResponse,
+  method: string,
+  path: string,
+): Promise<void> {
   const doc = await document();
   const operation = doc.paths[path]?.[method.toLowerCase()];
   expect(operation, `${method} ${path} is documented`).toBeDefined();

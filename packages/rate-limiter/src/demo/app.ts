@@ -40,7 +40,8 @@ export interface AppConfig {
 
 /**
  * Everything the application needs from the outside world. `server.ts` builds these from
- * the environment; tests build them from an `ioredis-mock` client and a fake clock.
+ * the environment; tests inject a real Redis client (wrapped so outages can be simulated),
+ * a fake clock and a deterministic id generator, then drive the app over a real HTTP port.
  */
 export interface AppDependencies {
   config: AppConfig;

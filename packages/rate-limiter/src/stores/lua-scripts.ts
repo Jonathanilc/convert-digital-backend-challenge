@@ -4,11 +4,11 @@
  * never over-admit, and each request costs a single round-trip.
  *
  * The current time is passed in by the caller (ARGV) rather than read via `TIME`: it keeps
- * every layer deterministic under an injected clock, including when the store runs against
- * `ioredis-mock`. Server-side TTLs are used only as garbage collection.
+ * every layer deterministic under an injected clock, so window expiry can be tested against a
+ * real Redis without sleeping. Server-side TTLs are used only as garbage collection.
  *
- * Portability note: timestamps are formatted with `%.0f` and multiplied as floats because
- * fengari-based mocks use 32-bit integers, which would wrap an epoch-millisecond value.
+ * Portability note: timestamps are formatted with `%.0f` so the scripts also behave on Lua VMs
+ * with 32-bit integers (e.g. fengari-based emulators), which would wrap epoch milliseconds.
  */
 
 /**

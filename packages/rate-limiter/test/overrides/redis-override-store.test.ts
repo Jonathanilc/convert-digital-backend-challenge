@@ -1,22 +1,40 @@
-import RedisMock from 'ioredis-mock';
-import { describe, expect, it, vi } from 'vitest';
+import type { Redis } from 'ioredis';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { RedisOverrideStore } from '../../src/overrides/redis-override-store.js';
 import { fakeClock } from '../helpers/clock.js';
+import { connect, testPrefix } from '../helpers/redis.js';
 import { ctx, makeOverride, T0 } from './fixtures.js';
 import { runOverrideStoreContract } from './override-store-contract.js';
 
-const KEY = 'test:overrides';
-
-runOverrideStoreContract('RedisOverrideStore (ioredis-mock)', (clock) => {
-  const redis = new RedisMock();
-  return new RedisOverrideStore(redis, { key: `${KEY}:${Math.random()}`, now: clock.now });
+const clients: Redis[] = [];
+const keys: string[] = [];
+afterAll(async () => {
+  const first = clients[0];
+  if (first && keys.length > 0) await first.del(...keys);
+  await Promise.all(clients.map((c) => c.quit()));
 });
+const client = (): Redis => {
+  const c = connect();
+  clients.push(c);
+  return c;
+};
+const hashKey = (): string => {
+  const k = testPrefix('overrides');
+  keys.push(k);
+  return k;
+};
+
+runOverrideStoreContract(
+  'RedisOverrideStore (real Redis)',
+  (clock) => new RedisOverrideStore(client(), { key: hashKey(), now: clock.now }),
+);
 
 describe('RedisOverrideStore: multi-instance behaviour', () => {
+  /** Two store instances sharing one server, as two app replicas would. */
   function pair(refreshMs = 5_000) {
-    const redis = new RedisMock();
+    const redis = client();
     const clock = fakeClock(T0);
-    const key = `${KEY}:${Math.random()}`;
+    const key = hashKey();
     const onError = vi.fn();
     const a = new RedisOverrideStore(redis, { key, now: clock.now, refreshMs, onError });
     const b = new RedisOverrideStore(redis, { key, now: clock.now, refreshMs, onError });
@@ -73,17 +91,19 @@ describe('RedisOverrideStore: multi-instance behaviour', () => {
     await a.refresh();
     expect((await a.resolve(ctx()))?.id).toBe('event');
 
-    vi.spyOn(redis, 'hgetall').mockRejectedValue(new Error('redis down'));
+    const hgetall = vi.spyOn(redis, 'hgetall').mockRejectedValue(new Error('redis down'));
     clock.advance(1_000);
     expect((await a.resolve(ctx({ now: clock.now() })))?.id).toBe('event');
     await vi.waitFor(() => expect(onError).toHaveBeenCalledWith(expect.any(Error)));
     expect((await a.resolve(ctx({ now: clock.now() })))?.id).toBe('event');
+    hgetall.mockRestore();
   });
 
   it('does not close a client it was given', async () => {
-    const redis = new RedisMock();
+    const redis = client();
     const quit = vi.spyOn(redis, 'quit');
     await new RedisOverrideStore(redis).close();
     expect(quit).not.toHaveBeenCalled();
+    quit.mockRestore();
   });
 });
