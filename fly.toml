@@ -22,6 +22,8 @@ primary_region = "syd"
   FAILURE_POLICY = "open"
   RATE_LIMIT_ALGORITHM = "fixed-window"
 
+# Demo budget: one Machine (`make deploy` passes --ha=false), stopped whenever idle. Idle cost is
+# the stopped rootfs only (cents per month); `fly scale count 2` when demonstrating multi-instance.
 [http_service]
   internal_port = 3000
   force_https = true

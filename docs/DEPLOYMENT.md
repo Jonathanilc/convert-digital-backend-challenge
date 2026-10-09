@@ -31,8 +31,8 @@ workflow loudly; it does not roll back on its own (see below).
 
 ```bash
 fly auth login
-fly apps create convert-digital-rate-limiter --org personal
-fly redis create --name convert-digital-rate-limiter-redis --org personal --region syd \
+fly apps create convert-digital-rate-limiter --org interview-infras
+fly redis create --name convert-digital-rate-limiter-redis --org interview-infras --region syd \
   --no-replicas --disable-eviction --enable-prodpack=false --plan "Pay-as-you-go"
 fly secrets set --app convert-digital-rate-limiter \
   REDIS_URL='redis://default:...@fly-convert-digital-rate-limiter-redis.upstash.io' \
@@ -83,15 +83,20 @@ is unaffected by app deploys.
 
 ## Scaling and cost
 
-```bash
-fly scale count 2 --app convert-digital-rate-limiter    # number of Machines
-fly scale memory 512 --app convert-digital-rate-limiter # per-Machine memory
-```
+This is a demo, so the deployment is sized for minimum cost:
 
-Two 256 MB shared Machines cost about $4.40/month if they never stop; with `auto_stop_machines`
-they stop after a few minutes idle and cost cents, waking in about a second on the next request.
-Redis is $0.20 per 100k commands (two or three commands per rate-limited request). Fly has no
-free tier beyond a short trial.
+- One `shared-cpu-1x` 256 MB Machine (`--ha=false` on deploy). Running non-stop it would be
+  $2.19/month; with `auto_stop_machines` it stops after a few minutes idle and costs only its
+  stopped rootfs, about $0.15 per GB per month, so a few cents. It wakes in about a second.
+- Redis pay-as-you-go: $0 base, $0.20 per 100k commands (two or three commands per limited request).
+- Fly has no free tier beyond a short trial; billing is pay-as-you-go with no monthly fee.
+
+To demonstrate multiple instances sharing one limit:
+
+```bash
+fly scale count 2 --app convert-digital-rate-limiter    # and back to 1 afterwards
+fly scale memory 512 --app convert-digital-rate-limiter # per-Machine memory, if ever needed
+```
 
 ## Platform specifics that matter for a rate limiter
 
@@ -104,8 +109,9 @@ free tier beyond a short trial.
   _and_ `FAILURE_POLICY=closed`. With the default fail-open policy a Redis outage keeps Machines in
   rotation (requests pass without limits) and shows up in `/health` as `degraded` and in logs as
   `rateLimit.degraded: true`.
-- **Multiple Machines, one limit.** Both Machines share the Upstash Redis; the Lua scripts keep
-  counting atomic across them.
+- **Multiple Machines, one limit.** Any number of Machines share the Upstash Redis; the Lua
+  scripts keep counting atomic across them. The demo runs one Machine for cost; scale to two to
+  show it.
 
 ## Not yet in place
 
