@@ -4,3 +4,6 @@ coverage/
 *.log
 .env
 .DS_Store
+
+# iCloud Drive conflict copies (Documents is iCloud-synced)
+* 2.*
