@@ -1,7 +1,7 @@
 # The production image, run locally, plus a black-box smoke suite against it.
-#   npm run prod:up      build the runtime image, start app + redis, wait until healthy
-#   npm run test:smoke   run test/smoke against http://app:3000
-#   npm run prod:down
+#   make prod-up         build the runtime image, start app + redis, wait until healthy
+#   make smoke           build, start, run test/smoke against http://app:3000, tear down
+#   make prod-down
 name: convert-digital-challenge-prod
 
 services:
@@ -17,7 +17,7 @@ services:
     build:
       context: .
       target: runtime
-    image: convert-digital/rate-limiter:local
+    image: ${IMAGE:-convert-digital/rate-limiter:local}
     depends_on:
       redis:
         condition: service_healthy

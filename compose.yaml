@@ -1,7 +1,7 @@
 # Local development. Everything runs in containers:
-#   npm run dev        app (hot reload) + redis
-#   npm test           the whole test suite inside the dev image, against the compose redis
-#   npm run redis:up   only redis, for running tests or the app on the host (npm run test:host)
+#   make dev           app (hot reload) + redis
+#   make test          the whole test suite inside the dev image, against the compose redis
+#   make redis         only redis, for running tests or the app on the host (npm test)
 services:
   redis:
     image: redis:7-alpine
@@ -49,4 +49,4 @@ services:
       - .:/app
       - /app/node_modules
       - /app/packages/rate-limiter/node_modules
-    command: npm run test:host
+    command: npm test
