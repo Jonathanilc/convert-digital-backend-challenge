@@ -5,33 +5,26 @@ on:
   pull_request:
 
 jobs:
-  test:
+  check:
+    name: Format, contract types, typecheck, tests (in Docker)
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 2s
-          --health-timeout 2s
-          --health-retries 15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
-      - run: npm run format:check
-      - name: Generated OpenAPI types are up to date
+      - name: Run the check pipeline inside the dev image against the compose Redis
+        run: docker compose run --rm --build test npm run check
+      - if: always()
+        run: docker compose down -v
+
+  smoke:
+    name: Production image smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the runtime image and start it with Redis
+        run: docker compose -f compose.prod.yaml up --build --wait app
+      - name: Black-box smoke suite against the running container
+        run: docker compose -f compose.prod.yaml run --rm --build smoke
+      - if: always()
         run: |
-          npm run openapi:types
-          git diff --exit-code -- packages/rate-limiter/src/demo/generated
-      - run: npm run typecheck
-      - name: Unit, component and integration tests
-        run: npm test
-        env:
-          REDIS_URL: redis://localhost:6379
-      - run: npm run build
+          docker compose -f compose.prod.yaml logs app
+          docker compose -f compose.prod.yaml down -v
