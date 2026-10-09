@@ -1,13 +1,11 @@
 import type { ErrorRequestHandler, Response } from 'express';
+import type { Logger as PinoLogger } from 'pino';
 import type { components } from './generated/openapi.js';
 
 export type ApiError = components['schemas']['Error'];
 
-export interface Logger {
-  info(message: string, meta?: unknown): void;
-  warn(message: string, meta?: unknown): void;
-  error(message: string, meta?: unknown): void;
-}
+/** Structured logger. pino's API: `logger.info({ ...fields }, 'message')`. */
+export type Logger = PinoLogger;
 
 export const REASON_PHRASES: Record<number, string> = {
   400: 'Bad Request',
@@ -75,7 +73,7 @@ export function errorHandler(logger: Logger): ErrorRequestHandler {
       }));
     }
 
-    if (status >= 500) logger.error('request failed', err);
+    if (status >= 500) logger.error({ err }, 'request failed');
     const message =
       status >= 500 ? 'Internal Server Error' : String(e.message ?? REASON_PHRASES[status]);
     sendError(res, status, message, details);

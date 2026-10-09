@@ -9,12 +9,29 @@ export interface IdentifyOptions {
    * most auth middleware (Passport, custom JWT guards) puts it.
    */
   getUserId?: (req: Request) => string | undefined;
+  /**
+   * Name of a header the hosting platform sets with the real client address and that clients
+   * cannot forge, e.g. `Fly-Client-IP` or `CF-Connecting-IP`. When present it takes precedence
+   * over `req.ip`; when absent or blank, `req.ip` is used. Prefer this over `trust proxy` hop
+   * counting whenever the platform offers such a header.
+   */
+  clientIpHeader?: string;
 }
 
 /** Express reports IPv4 clients on dual-stack sockets as `::ffff:a.b.c.d`; strip the prefix. */
 export function normalizeIp(ip: string | undefined): string {
   if (!ip) return 'unknown';
   return ip.startsWith('::ffff:') ? ip.slice('::ffff:'.length) : ip;
+}
+
+/** Resolves the client address: trusted platform header first, then Express's `req.ip`. */
+export function clientIp(req: Request, header?: string): string {
+  if (header) {
+    const raw = req.get(header);
+    const first = raw?.split(',')[0]?.trim();
+    if (first) return normalizeIp(first);
+  }
+  return normalizeIp(req.ip);
 }
 
 export function defaultGetUserId(req: Request): string | undefined {
@@ -34,7 +51,7 @@ export function defaultGetUserId(req: Request): string | undefined {
 export function identifyByUserOrIp(options: IdentifyOptions = {}): Identify {
   const getUserId = options.getUserId ?? defaultGetUserId;
   return (req) => {
-    const ip = normalizeIp(req.ip);
+    const ip = clientIp(req, options.clientIpHeader);
     const userId = getUserId(req);
     if (userId !== undefined) return { key: `user:${userId}`, tier: 'authenticated', userId, ip };
     return { key: `ip:${ip}`, tier: 'unauthenticated', ip };
@@ -48,7 +65,7 @@ export function identifyByUserOrIp(options: IdentifyOptions = {}): Identify {
 export function identifyByIp(options: IdentifyOptions = {}): Identify {
   const getUserId = options.getUserId ?? defaultGetUserId;
   return (req) => {
-    const ip = normalizeIp(req.ip);
+    const ip = clientIp(req, options.clientIpHeader);
     const userId = getUserId(req);
     return {
       key: `ip:${ip}`,

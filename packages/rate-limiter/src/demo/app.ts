@@ -2,8 +2,11 @@ import { randomUUID } from 'node:crypto';
 import express, { type Express } from 'express';
 import OpenApiValidator from 'express-openapi-validator';
 import type { Redis } from 'ioredis';
+import pino from 'pino';
+import { pinoHttp } from 'pino-http';
 import { RateLimiter } from '../core/rate-limiter.js';
 import type { Algorithm, EndpointRule, FailurePolicy, TierLimits } from '../core/types.js';
+import { identifyByUserOrIp } from '../express/identify.js';
 import { rateLimit } from '../express/middleware.js';
 import { RedisOverrideStore } from '../overrides/redis-override-store.js';
 import { RedisStore } from '../stores/redis-store.js';
@@ -30,6 +33,11 @@ export interface AppConfig {
   adminToken: string;
   /** Express `trust proxy` setting. */
   trustProxy: boolean | number | string;
+  /**
+   * Header set by the hosting platform with the real client address (e.g. `Fly-Client-IP`).
+   * Preferred over `trust proxy` hop counting when available.
+   */
+  clientIpHeader?: string;
   failurePolicy: FailurePolicy;
   /** Validate responses against the contract (test/dev only; costs latency). */
   validateResponses: boolean;
@@ -59,14 +67,14 @@ export function createApp({
   redis,
   clock = Date.now,
   ids = randomUUID,
-  logger = console,
+  logger = pino(),
 }: AppDependencies): Express {
   const store = new RedisStore(redis, { now: clock });
   const overrides = new RedisOverrideStore(redis, {
     key: config.overridesKey,
     refreshMs: config.overridesRefreshMs,
     now: clock,
-    onError: (error) => logger.warn('override refresh failed', error),
+    onError: (error) => logger.warn({ err: error }, 'override refresh failed'),
   });
   const limiter = new RateLimiter({
     store,
@@ -77,7 +85,7 @@ export function createApp({
     keyPrefix: config.keyPrefix,
     failurePolicy: config.failurePolicy,
     now: clock,
-    onStoreError: (error) => logger.warn('rate limit store error', error),
+    onStoreError: (error) => logger.warn({ err: error }, 'rate limit store error'),
   });
 
   const spec = loadOpenApiDocument();
@@ -85,11 +93,46 @@ export function createApp({
   app.set('trust proxy', config.trustProxy);
   app.disable('x-powered-by');
 
+  // 0. One structured log line per request (probes excluded), with the rate-limit decision.
+  app.use(
+    pinoHttp({
+      logger,
+      genReqId: (req) => {
+        const platformId = req.headers['fly-request-id'] ?? req.headers['x-request-id'];
+        return (Array.isArray(platformId) ? platformId[0] : platformId) ?? randomUUID();
+      },
+      autoLogging: { ignore: (req) => req.url === '/health' || req.url === '/ready' },
+      customLogLevel: (_req, res, error) =>
+        error || res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info',
+      customProps: (_req, res) => {
+        const decision = res.locals.rateLimit;
+        return decision
+          ? {
+              rateLimit: {
+                ruleId: decision.ruleId,
+                tier: decision.tier,
+                allowed: decision.allowed,
+                remaining: decision.remaining,
+                ...(decision.override ? { override: decision.override.id } : {}),
+                ...(decision.degraded ? { degraded: true } : {}),
+              },
+            }
+          : {};
+      },
+    }),
+  );
+
   // 1. Resolve credentials (never rejects, so the limiter sees every request).
   app.use(resolveBearerToken(config.users));
 
   // 2. Rate limit everything under /api before any parsing or validation happens.
-  app.use(rateLimit({ limiter, skip: (req) => !req.path.startsWith(RATE_LIMITED_PREFIX) }));
+  app.use(
+    rateLimit({
+      limiter,
+      identify: identifyByUserOrIp({ clientIpHeader: config.clientIpHeader }),
+      skip: (req) => !req.path.startsWith(RATE_LIMITED_PREFIX),
+    }),
+  );
 
   // 3. Now reject presented-but-invalid credentials.
   app.use(rejectInvalidCredentials);
@@ -123,6 +166,24 @@ export function createApp({
       checks: { redis: redisStatus },
     };
     res.json(body);
+  });
+
+  // Readiness for load balancers and rolling deploys. A Redis outage only makes the instance
+  // not-ready when the failure policy is closed; when failing open it can still serve.
+  app.get('/ready', async (_req, res) => {
+    let redisStatus: Schemas['Readiness']['checks']['redis'] = 'up';
+    try {
+      await redis.ping();
+    } catch {
+      redisStatus = 'down';
+    }
+    const ready = redisStatus === 'up' || config.failurePolicy === 'open';
+    const body: Schemas['Readiness'] = {
+      status: ready ? 'ready' : 'not-ready',
+      checks: { redis: redisStatus },
+      failurePolicy: config.failurePolicy,
+    };
+    res.status(ready ? 200 : 503).json(body);
   });
 
   app.get('/openapi.json', (_req, res) => {

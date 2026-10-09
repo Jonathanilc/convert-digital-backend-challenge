@@ -106,8 +106,24 @@ function users(raw: string | undefined): DemoUser[] {
   });
 }
 
+const DEFAULT_ADMIN_TOKEN = 'admin-secret';
+
+/** In production, demo defaults are a liability: refuse to start with them. */
+function assertProductionSecrets(env: Env): void {
+  if (!env.ADMIN_TOKEN || env.ADMIN_TOKEN === DEFAULT_ADMIN_TOKEN) {
+    throw new ConfigError(
+      'ADMIN_TOKEN',
+      'must be set to a non-default value when NODE_ENV=production',
+    );
+  }
+  if (!env.DEMO_USERS) {
+    throw new ConfigError('DEMO_USERS', 'must be set explicitly when NODE_ENV=production');
+  }
+}
+
 export function loadConfig(env: Env = process.env): ServerConfig {
   const production = env.NODE_ENV === 'production';
+  if (production) assertProductionSecrets(env);
   return {
     port: integer(env, 'PORT', 3000, { min: 1, max: 65_535 }),
     redisUrl: env.REDIS_URL || 'redis://localhost:6379',
@@ -124,8 +140,9 @@ export function loadConfig(env: Env = process.env): ServerConfig {
     },
     endpoints: DEMO_ENDPOINTS,
     users: users(env.DEMO_USERS),
-    adminToken: env.ADMIN_TOKEN || 'admin-secret',
+    adminToken: env.ADMIN_TOKEN || DEFAULT_ADMIN_TOKEN,
     trustProxy: trustProxy(env.TRUST_PROXY),
+    ...(env.CLIENT_IP_HEADER ? { clientIpHeader: env.CLIENT_IP_HEADER } : {}),
     failurePolicy: oneOf<FailurePolicy>(env, 'FAILURE_POLICY', FAILURE_POLICIES, 'open'),
     validateResponses: boolean(env, 'VALIDATE_RESPONSES', !production),
     keyPrefix: env.KEY_PREFIX || 'rl',
