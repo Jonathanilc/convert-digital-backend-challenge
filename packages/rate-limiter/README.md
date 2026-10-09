@@ -17,6 +17,7 @@ Rate limiting for Express 5 + TypeScript, backed by Redis.
   validates requests and responses and generates the handler types.
 
 The design and its trade-offs are documented in [`../../docs/DESIGN.md`](../../docs/DESIGN.md).
+Interactive docs (Swagger UI) are served at `/docs`; the raw document at `/openapi.json`.
 
 ## Demo API
 

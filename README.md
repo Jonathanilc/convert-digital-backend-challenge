@@ -10,6 +10,7 @@ rate limiting engine for message throttling.
 
 Start with [`docs/DESIGN.md`](docs/DESIGN.md) for the design and the reasoning behind it, and
 [`packages/rate-limiter/openapi.yaml`](packages/rate-limiter/openapi.yaml) for the HTTP contract.
+The live API renders it as Swagger UI at https://convert-digital-rate-limiter.fly.dev/docs.
 
 ## Quick start (Docker)
 
