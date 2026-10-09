@@ -1,0 +1,555 @@
+openapi: 3.1.0
+info:
+  title: Rate Limiter Demo API
+  version: 0.1.0
+  summary: Express API protected by a Redis-backed rate limiter.
+  description: |
+    Reference API for the `@challenge/rate-limiter` package.
+
+    Every request under `/api` is rate limited **before** any other processing, so unknown
+    paths and malformed bodies still count against the caller. Limits depend on the endpoint
+    and on whether the caller is authenticated:
+
+    | Endpoint           | Unauthenticated | Authenticated | Algorithm     |
+    |--------------------|-----------------|---------------|---------------|
+    | default (`/api/*`) | 100 / hour      | 200 / hour    | fixed window  |
+    | `GET /api/search`  | 20 / minute     | 60 / minute   | sliding log   |
+    | `POST /api/login`  | 5 / 15 minutes  | 5 / 15 minutes| fixed window  |
+
+    Unauthenticated callers are identified by IP address, authenticated callers by user id.
+    Successful `/api` responses carry the IETF `RateLimit-*` headers; a blocked request
+    receives `429 Too Many Requests` with a `Retry-After` header.
+
+    Temporary overrides (special events, support escalations) are managed through the
+    `/admin/overrides` endpoints and expire automatically.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: http://localhost:3000
+    description: Local development
+tags:
+  - name: Public
+    description: Endpoints available to everyone, subject to rate limits.
+  - name: Account
+    description: Authentication and the current user.
+  - name: Admin
+    description: Temporary rate-limit overrides. Requires the `X-Admin-Token` header. Not rate limited.
+  - name: Meta
+    description: Health and documentation. Not rate limited.
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      tags: [Meta]
+      summary: Liveness and dependency check
+      description: Exempt from rate limiting. Reports whether Redis is reachable.
+      responses:
+        '200':
+          description: The service is up. `status` is `degraded` when Redis is unreachable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+
+  /openapi.json:
+    get:
+      operationId: getOpenApiDocument
+      tags: [Meta]
+      summary: This document as JSON
+      responses:
+        '200':
+          description: The OpenAPI document.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /api/public:
+    get:
+      operationId: getPublic
+      tags: [Public]
+      summary: Sample endpoint under the default limits
+      description: Works with or without authentication. Authenticated callers get the higher limit.
+      security:
+        - {}
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          headers:
+            RateLimit-Limit: { $ref: '#/components/headers/RateLimit-Limit' }
+            RateLimit-Remaining: { $ref: '#/components/headers/RateLimit-Remaining' }
+            RateLimit-Reset: { $ref: '#/components/headers/RateLimit-Reset' }
+            RateLimit-Policy: { $ref: '#/components/headers/RateLimit-Policy' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /api/search:
+    get:
+      operationId: search
+      tags: [Public]
+      summary: Expensive endpoint with its own, stricter sliding-log limit
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Search term.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+      responses:
+        '200':
+          description: OK
+          headers:
+            RateLimit-Limit: { $ref: '#/components/headers/RateLimit-Limit' }
+            RateLimit-Remaining: { $ref: '#/components/headers/RateLimit-Remaining' }
+            RateLimit-Reset: { $ref: '#/components/headers/RateLimit-Reset' }
+            RateLimit-Policy: { $ref: '#/components/headers/RateLimit-Policy' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /api/login:
+    post:
+      operationId: login
+      tags: [Account]
+      summary: Exchange credentials for a bearer token
+      description: |
+        Deliberately tight limit (5 attempts per 15 minutes per IP) as brute-force protection.
+        The limit is the same for authenticated and unauthenticated callers.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Credentials accepted.
+          headers:
+            RateLimit-Limit: { $ref: '#/components/headers/RateLimit-Limit' }
+            RateLimit-Remaining: { $ref: '#/components/headers/RateLimit-Remaining' }
+            RateLimit-Reset: { $ref: '#/components/headers/RateLimit-Reset' }
+            RateLimit-Policy: { $ref: '#/components/headers/RateLimit-Policy' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /api/me:
+    get:
+      operationId: getMe
+      tags: [Account]
+      summary: The authenticated user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          headers:
+            RateLimit-Limit: { $ref: '#/components/headers/RateLimit-Limit' }
+            RateLimit-Remaining: { $ref: '#/components/headers/RateLimit-Remaining' }
+            RateLimit-Reset: { $ref: '#/components/headers/RateLimit-Reset' }
+            RateLimit-Policy: { $ref: '#/components/headers/RateLimit-Policy' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /admin/overrides:
+    get:
+      operationId: listOverrides
+      tags: [Admin]
+      summary: List active overrides
+      security:
+        - adminToken: []
+      responses:
+        '200':
+          description: Active (non-expired) overrides, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OverrideList'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      operationId: createOverride
+      tags: [Admin]
+      summary: Create a temporary override
+      description: |
+        Exactly one of `ttlSeconds` or `expiresAt` must be given. When several overrides match
+        a request, the most specific one (most criteria fields) wins; ties go to the newest.
+      security:
+        - adminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOverrideRequest'
+            examples:
+              launchDay:
+                summary: Double every limit for the next 6 hours
+                value:
+                  reason: Product launch
+                  criteria: {}
+                  effect: { multiplier: 2 }
+                  ttlSeconds: 21600
+              supportEscalation:
+                summary: Lift one user's search limit for a day
+                value:
+                  reason: Support ticket #4821
+                  criteria: { userIds: [alice], ruleIds: [search] }
+                  effect: { limit: 1000 }
+                  ttlSeconds: 86400
+              blockAbusiveIp:
+                summary: Block an IP for an hour
+                value:
+                  reason: Credential stuffing from this address
+                  criteria: { ips: [203.0.113.7] }
+                  effect: { limit: 0 }
+                  ttlSeconds: 3600
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Override'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/overrides/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+    delete:
+      operationId: deleteOverride
+      tags: [Admin]
+      summary: Remove an override before it expires
+      security:
+        - adminToken: []
+      responses:
+        '204':
+          description: Removed.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Demo tokens are configured server-side (e.g. `alice-token`).
+    adminToken:
+      type: apiKey
+      in: header
+      name: X-Admin-Token
+
+  headers:
+    RateLimit-Limit:
+      description: Requests permitted in the current window (after overrides).
+      schema: { type: integer, minimum: 0 }
+    RateLimit-Remaining:
+      description: Requests left in the current window.
+      schema: { type: integer, minimum: 0 }
+    RateLimit-Reset:
+      description: Seconds until capacity is next freed.
+      schema: { type: integer, minimum: 0 }
+    RateLimit-Policy:
+      description: Policy in `<limit>;w=<window seconds>` form, per draft-ietf-httpapi-ratelimit-headers.
+      schema: { type: string, pattern: '^[0-9]+;w=[0-9]+$' }
+    Retry-After:
+      description: Seconds the client should wait before retrying.
+      schema: { type: integer, minimum: 1 }
+
+  responses:
+    BadRequest:
+      description: The request does not match this contract.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing or invalid credentials.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Credentials are valid but do not grant access to this resource.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: No such resource.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: The caller has exhausted its limit for this endpoint.
+      headers:
+        Retry-After: { $ref: '#/components/headers/Retry-After' }
+        RateLimit-Limit: { $ref: '#/components/headers/RateLimit-Limit' }
+        RateLimit-Remaining: { $ref: '#/components/headers/RateLimit-Remaining' }
+        RateLimit-Reset: { $ref: '#/components/headers/RateLimit-Reset' }
+        RateLimit-Policy: { $ref: '#/components/headers/RateLimit-Policy' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/RateLimitError' }
+    ServiceUnavailable:
+      description: |
+        The rate limiter backend is unreachable and the service is configured to fail closed.
+        (When configured to fail open, requests pass and no `RateLimit-*` headers are sent.)
+      headers:
+        Retry-After: { $ref: '#/components/headers/Retry-After' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ServiceUnavailableError' }
+
+  schemas:
+    Error:
+      type: object
+      required: [error, message]
+      additionalProperties: false
+      properties:
+        error:
+          type: string
+          description: HTTP reason phrase, e.g. `Bad Request`.
+        message:
+          type: string
+        details:
+          type: array
+          description: Field-level validation problems, when applicable.
+          items:
+            type: object
+            required: [path, message]
+            additionalProperties: false
+            properties:
+              path: { type: string }
+              message: { type: string }
+
+    RateLimitError:
+      type: object
+      required: [error, message, limit, remaining, retryAfterSeconds]
+      additionalProperties: false
+      properties:
+        error: { type: string, const: Too Many Requests }
+        message: { type: string }
+        limit: { type: integer, minimum: 0 }
+        remaining: { type: integer, const: 0 }
+        retryAfterSeconds: { type: integer, minimum: 1 }
+        override:
+          type: string
+          description: Id of the override that produced the effective limit, if any.
+
+    ServiceUnavailableError:
+      type: object
+      required: [error, message, retryAfterSeconds]
+      additionalProperties: false
+      properties:
+        error: { type: string, const: Service Unavailable }
+        message: { type: string }
+        retryAfterSeconds: { type: integer, minimum: 1 }
+
+    Health:
+      type: object
+      required: [status, checks]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        checks:
+          type: object
+          required: [redis]
+          additionalProperties: false
+          properties:
+            redis:
+              type: string
+              enum: [up, down]
+
+    Tier:
+      type: string
+      description: Built-in tiers are `unauthenticated` and `authenticated`; deployments may add more.
+      examples: [unauthenticated, authenticated]
+
+    Algorithm:
+      type: string
+      enum: [fixed-window, sliding-log]
+
+    PublicResponse:
+      type: object
+      required: [message, tier]
+      additionalProperties: false
+      properties:
+        message: { type: string }
+        tier: { $ref: '#/components/schemas/Tier' }
+
+    SearchResponse:
+      type: object
+      required: [query, results, tier]
+      additionalProperties: false
+      properties:
+        query: { type: string }
+        results:
+          type: array
+          items: { type: string }
+        tier: { $ref: '#/components/schemas/Tier' }
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      additionalProperties: false
+      properties:
+        username: { type: string, minLength: 1, maxLength: 100 }
+        password: { type: string, minLength: 1, maxLength: 200 }
+
+    LoginResponse:
+      type: object
+      required: [token, user]
+      additionalProperties: false
+      properties:
+        token: { type: string }
+        user: { $ref: '#/components/schemas/User' }
+
+    User:
+      type: object
+      required: [id]
+      additionalProperties: false
+      properties:
+        id: { type: string }
+
+    OverrideCriteria:
+      type: object
+      description: Every present field must match (logical AND). An empty object matches all requests.
+      additionalProperties: false
+      properties:
+        userIds:
+          type: array
+          minItems: 1
+          items: { type: string, minLength: 1 }
+        ips:
+          type: array
+          minItems: 1
+          items: { type: string, minLength: 1 }
+        tiers:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/Tier' }
+        ruleIds:
+          type: array
+          minItems: 1
+          description: Endpoint rule ids. `default` targets requests no endpoint rule matched.
+          items: { type: string, minLength: 1 }
+        paths:
+          type: array
+          minItems: 1
+          description: Express-style path patterns, e.g. `/api/search` or `/api/users/:id`.
+          items: { type: string, minLength: 1 }
+
+    OverrideEffect:
+      type: object
+      description: At least one field is required. `limit` is applied before `multiplier`.
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        bypass:
+          type: boolean
+          description: Skip rate limiting entirely.
+        limit:
+          type: integer
+          minimum: 0
+          description: Replace the limit. `0` blocks matching requests.
+        multiplier:
+          type: number
+          minimum: 0
+          description: Scale the limit; the result is rounded down.
+        windowMs:
+          type: integer
+          minimum: 1
+        algorithm:
+          $ref: '#/components/schemas/Algorithm'
+
+    Override:
+      type: object
+      required: [id, reason, criteria, effect, expiresAt, createdAt]
+      additionalProperties: false
+      properties:
+        id: { type: string }
+        reason: { type: string }
+        criteria: { $ref: '#/components/schemas/OverrideCriteria' }
+        effect: { $ref: '#/components/schemas/OverrideEffect' }
+        startsAt:
+          type: string
+          format: date-time
+          description: Present when the override is scheduled to begin in the future.
+        expiresAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    OverrideList:
+      type: object
+      required: [overrides]
+      additionalProperties: false
+      properties:
+        overrides:
+          type: array
+          items: { $ref: '#/components/schemas/Override' }
+
+    CreateOverrideRequest:
+      type: object
+      required: [reason, effect]
+      additionalProperties: false
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 500 }
+        criteria:
+          $ref: '#/components/schemas/OverrideCriteria'
+        effect:
+          $ref: '#/components/schemas/OverrideEffect'
+        startsAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+          description: Absolute expiry. Mutually exclusive with `ttlSeconds`.
+        ttlSeconds:
+          type: integer
+          minimum: 1
+          maximum: 2592000
+          description: Expiry relative to now (max 30 days). Mutually exclusive with `expiresAt`.
+      oneOf:
+        - required: [ttlSeconds]
+        - required: [expiresAt]
