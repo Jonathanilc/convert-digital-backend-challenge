@@ -1,5 +1,8 @@
 # Deployment: Fly.io Machines
 
+Two apps share one Redis in the `interview-infras` organisation. The first table is the rate
+limiter (Option 1); the chat server (Option 2) follows in its own section.
+
 The demo API runs on [Fly.io](https://fly.io) Machines in Sydney, with a managed Redis (Upstash) on
 Fly's private network. This is the runbook; the reasoning is in [DESIGN.md §13](DESIGN.md#13-deployment).
 
@@ -118,3 +121,53 @@ fly scale memory 512 --app convert-digital-rate-limiter # per-Machine memory, if
 - Staging environment (would be a second app with the same workflow and a `fly.staging.toml`).
 - Alerting: Fly's built-in metrics dashboard covers requests and Machine health; no paging.
 - Custom domain: `fly certs add <domain>` when one exists.
+
+## Chat server (Option 2)
+
+| Item    | Value                                                                                                                   |
+| ------- | ----------------------------------------------------------------------------------------------------------------------- |
+| App     | `convert-digital-chat` (org `interview-infras`) → https://convert-digital-chat.fly.dev                                  |
+| Docs    | https://convert-digital-chat.fly.dev/docs (HTTP, Swagger UI), `/asyncapi.yaml` (WebSocket contract), `/openapi.json`    |
+| Region  | `syd`                                                                                                                   |
+| Machine | 1 × `shared-cpu-1x` 256 MB (`--ha=false`), stopped when idle; Fly keeps it running while WebSocket connections are open |
+| Storage | Fly volume `chat_data` (1 GB, about $0.15/month) mounted at `/data`, SQLite file `/data/chat.db`                        |
+| Redis   | the rate limiter's Upstash database, shared (rate limiting only)                                                        |
+| Config  | [`fly.chat.toml`](../fly.chat.toml); secrets `REDIS_URL`, `JWT_SECRET`, `SEED_USERS`                                    |
+| Image   | `registry.fly.io/convert-digital-chat:<git sha>`, Dockerfile target `runtime-chat`                                      |
+
+Deploys follow the same path as the rate limiter: CI builds the `runtime-chat` image once, pushes
+it by git SHA, rolls it out behind `GET /ready`, then runs the chat smoke suite against the live URL,
+which logs in, opens a real WebSocket, joins the default room and exchanges a message. The deploy
+job is gated on the `FLY_APP_CHAT` repository variable and uses the `FLY_API_TOKEN_CHAT` secret.
+
+```bash
+make deploy-chat                                   # manual deploy of the current commit
+make smoke-remote-chat                             # smoke the live chat app
+make fly-status FLY_CONFIG=fly.chat.toml           # machines / releases
+make fly-logs FLY_CONFIG=fly.chat.toml
+fly ssh console --app convert-digital-chat -C "ls -la /data"
+```
+
+First-time setup (done):
+
+```bash
+fly apps create convert-digital-chat --org interview-infras
+fly volumes create chat_data --app convert-digital-chat --region syd --size 1 --yes
+fly secrets set --app convert-digital-chat \
+  REDIS_URL='redis://default:...@fly-convert-digital-rate-limiter-redis.upstash.io' \
+  JWT_SECRET="$(openssl rand -hex 32)" \
+  SEED_USERS='admin:<random>:admin,alice:wonderland:user,bob:bob-builder:user'
+fly tokens create deploy --app convert-digital-chat -x 8760h | gh secret set FLY_API_TOKEN_CHAT
+gh variable set FLY_APP_CHAT --body convert-digital-chat
+```
+
+Notes:
+
+- Production refuses the default `JWT_SECRET` (and anything shorter than 32 characters) and requires
+  an explicit `SEED_USERS`, so a missing secret fails at the readiness check rather than running with
+  demo credentials. The seeded admin password lives in the git-ignored `.env.production.local`.
+- One Machine with a volume means one SQLite writer, which is exactly the constraint SQLite wants.
+  Scaling out means Postgres plus Redis pub/sub for fan-out (see `docs/CHAT.md` §7), not more
+  Machines on this image.
+- Rotating the JWT secret logs everyone out: `fly secrets set JWT_SECRET=...` redeploys.
+- Backup: `fly volumes snapshots list chat_data`; Fly takes daily snapshots of volumes by default.
