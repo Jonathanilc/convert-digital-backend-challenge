@@ -11,6 +11,16 @@ const [USERNAME = 'alice', PASSWORD = 'wonderland'] = (
 
 const api = httpClient(APP_URL);
 
+/** A freshly deployed instance may still be connecting to Redis; give it a bounded moment. */
+async function waitForHealthy(timeoutMs = 20_000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const res = await api.get('/health', { expect: 200 });
+    if (res.body?.status === 'ok' || Date.now() >= deadline) return res;
+    await new Promise((r) => setTimeout(r, 1_000));
+  }
+}
+
 /**
  * Black-box check of a running instance: HTTP contract, both documents, a real login and a real
  * WebSocket round-trip (join the default room, send one message, receive it back). Every received
@@ -23,7 +33,7 @@ describe(`chat smoke against ${APP_URL}`, () => {
   });
 
   it('is healthy and ready', async () => {
-    const health = await api.get('/health', { expect: 200 });
+    const health = await waitForHealthy();
     expect(health.body).toMatchObject({ status: 'ok', checks: { redis: 'up', database: 'up' } });
     await expectContract(health, 'GET', '/health');
     await expectContract(await api.get('/ready', { expect: 200 }), 'GET', '/ready');

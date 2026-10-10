@@ -13,6 +13,16 @@ const VERIFY_CLIENT_IP = process.env.SMOKE_VERIFY_CLIENT_IP === 'true';
 const api = httpClient(APP_URL);
 const admin = { headers: { 'x-admin-token': ADMIN_TOKEN } };
 
+/** A freshly deployed instance may still be connecting to Redis; give it a bounded moment. */
+async function waitForHealthy(timeoutMs = 20_000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const res = await api.get('/health', { expect: 200 });
+    if (res.body?.status === 'ok' || Date.now() >= deadline) return res;
+    await new Promise((r) => setTimeout(r, 1_000));
+  }
+}
+
 /**
  * Proves a deployed instance works end to end without depending on time: the 429 path is
  * exercised through a blocking override instead of exhausting a real window.
@@ -24,7 +34,7 @@ describe(`smoke against ${APP_URL}`, () => {
   });
 
   it('is healthy and connected to Redis', async () => {
-    const res = await api.get('/health', { expect: 200 });
+    const res = await waitForHealthy();
     expect(res.body).toEqual({ status: 'ok', checks: { redis: 'up' } });
     await expectContract(res, 'GET', '/health');
   });
