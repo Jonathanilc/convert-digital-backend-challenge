@@ -53,6 +53,3 @@ export {
   type IdentifyOptions,
 } from './express/identify.js';
 export { applyRateLimitHeaders, retryAfterSeconds, type HeaderStyle } from './express/headers.js';
-
-// Demo application (composition happens in ./demo/server.ts)
-export { createApp, type AppConfig, type AppDependencies } from './demo/app.js';
