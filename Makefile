@@ -14,38 +14,43 @@ SHELL := /bin/sh
 APP_PORT   ?= 3000
 REDIS_PORT ?= 6379
 IMAGE      ?= convert-digital/rate-limiter:local
-export APP_PORT REDIS_PORT IMAGE
+IMAGE_CHAT ?= convert-digital/chat-server:local
+CHAT_PORT  ?= 3001
+export APP_PORT REDIS_PORT IMAGE IMAGE_CHAT CHAT_PORT
 
 COMPOSE      := docker compose
 COMPOSE_PROD := docker compose -f compose.prod.yaml
 PKG          := @challenge/rate-limiter
 
 # Fly.io: the CLI is `fly` locally but the GitHub action installs it as `flyctl`.
-FLY       ?= $(shell command -v fly 2>/dev/null || echo flyctl)
-# App name comes from fly.toml unless overridden; images are tagged with the git SHA.
-FLY_APP   ?= $(shell sed -n 's/^app *= *"\(.*\)"/\1/p' fly.toml)
-GIT_SHA   ?= $(shell git rev-parse --short HEAD)
-FLY_IMAGE ?= registry.fly.io/$(FLY_APP):$(GIT_SHA)
-APP_URL   ?= https://$(FLY_APP).fly.dev
+FLY           ?= $(shell command -v fly 2>/dev/null || echo flyctl)
+# One set of targets serves both apps: the chat variants override FLY_CONFIG/FLY_TARGET/SMOKE_SERVICE.
+FLY_CONFIG    ?= fly.toml
+FLY_TARGET    ?= runtime
+SMOKE_SERVICE ?= smoke
+FLY_APP       ?= $(shell sed -n 's/^app *= *"\(.*\)"/\1/p' $(FLY_CONFIG))
+GIT_SHA       ?= $(shell git rev-parse --short HEAD)
+FLY_IMAGE     ?= registry.fly.io/$(FLY_APP):$(GIT_SHA)
+APP_URL       ?= https://$(FLY_APP).fly.dev
 
-.PHONY: help dev up down logs shell redis test test-watch check fmt openapi-types image prod-up prod-down prod-logs smoke smoke-remote deploy fly-status fly-logs clean
+.PHONY: help dev up down logs shell redis test test-watch check fmt openapi-types image prod-up prod-down prod-logs smoke smoke-remote smoke-remote-chat deploy deploy-chat fly-status fly-logs clean
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*## "; printf "\nUsage: make <target> [APP_PORT=3100] [REDIS_PORT=6380] [IMAGE=tag]\n"} /^##@/ {printf "\n%s\n", substr($$0, 5)} /^[a-zA-Z0-9_-]+:.*## / {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@echo
 
 ##@ Development
-dev: ## App with hot reload + Redis, logs in the foreground
+dev: ## Rate limiter (APP_PORT) + chat server (CHAT_PORT) with hot reload + Redis, logs in the foreground
 	$(COMPOSE) up --build
 
 up: ## Same stack, detached
-	$(COMPOSE) up --build -d app
+	$(COMPOSE) up --build -d app chat
 
 down: ## Stop the development stack
 	$(COMPOSE) down
 
-logs: ## Follow app logs
-	$(COMPOSE) logs -f app
+logs: ## Follow logs of both apps
+	$(COMPOSE) logs -f app chat
 
 shell: ## Shell inside the running app container
 	$(COMPOSE) exec app sh
@@ -70,38 +75,48 @@ openapi-types: ## Regenerate TypeScript types from openapi.yaml, inside the cont
 	$(COMPOSE) run --rm --build --no-deps test npm run openapi:types
 
 ##@ Production image
-image: ## Build and tag the runtime image only (IMAGE=...)
+image: ## Build and tag both runtime images (IMAGE=..., IMAGE_CHAT=...)
 	docker build --target runtime -t $(IMAGE) .
+	docker build --target runtime-chat -t $(IMAGE_CHAT) .
 
-prod-up: ## Run the production image with Redis and wait until healthy
-	$(COMPOSE_PROD) up --build --wait app
+prod-up: ## Run both production images with Redis and wait until healthy
+	$(COMPOSE_PROD) up --build --wait app chat
 
 prod-down: ## Stop the production stack and remove its volumes
 	$(COMPOSE_PROD) down -v
 
-prod-logs: ## Follow production app logs
-	$(COMPOSE_PROD) logs -f app
+prod-logs: ## Follow production logs of both apps
+	$(COMPOSE_PROD) logs -f app chat
 
-smoke: ## Build + start the production image, run the black-box smoke suite, tear down
-	$(COMPOSE_PROD) up --build --wait app
+smoke: ## Build + start both production images, run both black-box smoke suites, tear down
+	$(COMPOSE_PROD) up --build --wait app chat
 	$(COMPOSE_PROD) run --rm --build smoke || { $(COMPOSE_PROD) logs app; $(COMPOSE_PROD) down -v; exit 1; }
+	$(COMPOSE_PROD) run --rm chat-smoke || { $(COMPOSE_PROD) logs chat; $(COMPOSE_PROD) down -v; exit 1; }
 	$(COMPOSE_PROD) down -v
 
 ##@ Fly.io (requires `fly auth login`; CI uses FLY_API_TOKEN)
-deploy: ## Build the runtime image for amd64, push it to the Fly registry, deploy that exact image (1 Machine, demo budget)
+deploy: ## Build the rate limiter image for amd64, push it to the Fly registry, deploy that exact image (1 Machine)
 	$(FLY) auth docker
-	docker build --platform linux/amd64 --target runtime -t $(FLY_IMAGE) .
+	docker build --platform linux/amd64 --target $(FLY_TARGET) -t $(FLY_IMAGE) .
 	docker push $(FLY_IMAGE)
-	$(FLY) deploy --app $(FLY_APP) --image $(FLY_IMAGE) --ha=false --wait-timeout 5m
+	$(FLY) deploy --config $(FLY_CONFIG) --app $(FLY_APP) --image $(FLY_IMAGE) --ha=false --wait-timeout 5m
 
-smoke-remote: ## Run the black-box smoke suite against APP_URL (default: the Fly app); needs ADMIN_TOKEN
+deploy-chat: FLY_CONFIG := fly.chat.toml
+deploy-chat: FLY_TARGET := runtime-chat
+deploy-chat: deploy ## Same for the chat server (fly.chat.toml, runtime-chat image)
+
+smoke-remote: ## Run the rate limiter's black-box smoke suite against APP_URL (default: the Fly app); needs ADMIN_TOKEN
 	$(COMPOSE) run --rm --build --no-deps -e APP_URL=$(APP_URL) -e ADMIN_TOKEN=$(ADMIN_TOKEN) -e SMOKE_VERIFY_CLIENT_IP=true test npm run test:smoke -w $(PKG)
 
-fly-status: ## Machines, health and recent releases of the Fly app
+smoke-remote-chat: FLY_CONFIG := fly.chat.toml
+smoke-remote-chat: ## Run the chat server's black-box smoke suite against APP_URL (default: the chat Fly app)
+	$(COMPOSE) run --rm --build --no-deps -e APP_URL=$(APP_URL) test npm run test:smoke -w @challenge/chat-server
+
+fly-status: ## Machines, health and recent releases (FLY_CONFIG=fly.chat.toml for the chat app)
 	$(FLY) status --app $(FLY_APP)
 	$(FLY) releases --app $(FLY_APP) | head -8
 
-fly-logs: ## Tail the Fly app logs
+fly-logs: ## Tail the Fly app logs (FLY_CONFIG=fly.chat.toml for the chat app)
 	$(FLY) logs --app $(FLY_APP)
 
 ##@ Housekeeping

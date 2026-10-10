@@ -8,3 +8,6 @@ coverage/
 # iCloud Drive conflict copies (Documents is iCloud-synced)
 * 2.*
 .env.*.local
+
+# local SQLite databases
+packages/*/data/

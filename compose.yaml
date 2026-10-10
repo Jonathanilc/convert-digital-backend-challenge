@@ -33,6 +33,30 @@ services:
       # Keep the image's Linux node_modules; never mix them with the host's.
       - /app/node_modules
       - /app/packages/rate-limiter/node_modules
+      - /app/packages/chat-server/node_modules
+
+  chat:
+    build:
+      context: .
+      target: dev
+    command: npm run dev -w @challenge/chat-server
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - '${CHAT_PORT:-3001}:3000'
+    environment:
+      REDIS_URL: redis://redis:6379
+      PORT: '3000'
+      DATABASE_FILE: /app/packages/chat-server/data/chat.db
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/packages/rate-limiter/node_modules
+      - /app/packages/chat-server/node_modules
 
   test:
     profiles: [test]
@@ -49,4 +73,5 @@ services:
       - .:/app
       - /app/node_modules
       - /app/packages/rate-limiter/node_modules
+      - /app/packages/chat-server/node_modules
     command: npm test

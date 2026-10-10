@@ -29,6 +29,7 @@ this document explains the model behind it and the decisions taken.
 ├── compose.prod.yaml              the runtime image + redis, plus the black-box smoke runner
 ├── .github/workflows/ci.yml       check pipeline in Docker; runtime image smoke test
 └── packages/
+    ├── chat-server/               Option 2, see docs/CHAT.md
     └── rate-limiter/
         ├── openapi.yaml           the HTTP contract (source of truth)
         ├── src/
@@ -258,14 +259,14 @@ written as a failing test before the code that satisfies it.
 | express-openapi-validator | 5.6     | Express 5 support since 5.5                                                                                           |
 | Redis                     | 7       | `redis:7-alpine` in compose                                                                                           |
 
-## 12. Extending to Option 2
+## 12. Option 2 reuses the engine
 
-A `packages/chat-server` would depend on this package and call
-`limiter.check({ identity: { key: 'user:'+userId, tier }, path: 'ws:message', method: 'SEND' })`
-per message. The `path`/`method` pair is just a routing key to the engine, so one rule
-`{ id: 'chat-message', path: 'ws:message' }` gives per-user message limits with the same stores,
-overrides and admin API. It would get its own `dev`/`runtime` targets or a second Dockerfile
-and join `compose.yaml` as another service.
+`packages/chat-server` depends on this package and calls
+`limiter.check({ identity: { key: 'user:'+userId, tier: 'authenticated' }, path: 'ws:send', method: 'SEND' })`
+per message, with the sliding log and the same Redis store; the `path`/`method` pair is just a
+routing key to the engine. It also reuses the Express middleware for its `/auth/*` routes. Its
+design is in [CHAT.md](CHAT.md); it shares the Dockerfile (`runtime-chat` target), compose
+stacks, Makefile and CI.
 
 ## 13. Deployment
 

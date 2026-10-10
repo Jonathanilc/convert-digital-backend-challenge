@@ -9,3 +9,4 @@ docs
 .env
 .DS_Store
 **/* 2.*
+**/data

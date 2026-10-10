@@ -1,4 +1,4 @@
-# The production image, run locally, plus a black-box smoke suite against it.
+# The production images, run locally, plus black-box smoke suites against them.
 #   make prod-up         build the runtime image, start app + redis, wait until healthy
 #   make smoke           build, start, run test/smoke against http://app:3000, tear down
 #   make prod-down
@@ -33,6 +33,40 @@ services:
       - path: .env
         required: false
 
+  chat:
+    build:
+      context: .
+      target: runtime-chat
+    image: ${IMAGE_CHAT:-convert-digital/chat-server:local}
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - '${CHAT_PORT:-3001}:3000'
+    environment:
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: production
+      # Production refuses demo defaults, so the local production stack sets explicit values.
+      JWT_SECRET: ${JWT_SECRET:-local-prod-jwt-secret-change-me-before-real-use}
+      SEED_USERS: ${SEED_USERS:-admin:admin-password:admin,alice:wonderland:user,bob:bob-builder:user}
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - chat-data:/data
+
+  chat-smoke:
+    profiles: [smoke]
+    build:
+      context: .
+      target: dev
+    depends_on:
+      chat:
+        condition: service_healthy
+    environment:
+      APP_URL: http://chat:3000
+    command: npm run test:smoke -w @challenge/chat-server
+
   smoke:
     profiles: [smoke]
     build:
@@ -45,3 +79,6 @@ services:
       APP_URL: http://app:3000
       ADMIN_TOKEN: ${ADMIN_TOKEN:-local-prod-admin-token}
     command: npm run test:smoke -w @challenge/rate-limiter
+
+volumes:
+  chat-data:

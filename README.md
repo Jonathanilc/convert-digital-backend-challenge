@@ -1,16 +1,20 @@
 # Backend Coding Challenge — Convert Digital
 
-Submission for **Option 1: API Rate Limiter**. The repository is an npm workspace so that
-**Option 2 (WebSocket chat server)** can be added later as `packages/chat-server` and reuse the
-rate limiting engine for message throttling.
+Submission covering **both options**: the API rate limiter (Option 1) and the WebSocket chat
+server (Option 2), which reuses the rate limiting engine for message throttling. One npm
+workspace, one Docker build, one CI pipeline.
 
-| Package                                                    | What it is                                                                                                                                                                 |
-| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`packages/rate-limiter`](packages/rate-limiter/README.md) | Redis-backed rate limiting for Express 5 + TypeScript: fixed window and sliding log, per-endpoint and per-tier limits, temporary overrides, and an OpenAPI-first demo API. |
+| Package                                                    | What it is                                                                                                                                                                                                |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`packages/rate-limiter`](packages/rate-limiter/README.md) | Option 1. Redis-backed rate limiting for Express 5 + TypeScript: fixed window and sliding log, per-endpoint and per-tier limits, temporary overrides, and an OpenAPI-first demo API.                      |
+| [`packages/chat-server`](packages/chat-server/README.md)   | Option 2. WebSocket chat: rooms, JWT accounts, SQLite history with keyset pagination, @mentions, edit/delete, per-user message rate limiting via Option 1, admin API. AsyncAPI 3 + OpenAPI 3.1 contracts. |
 
-Start with [`docs/DESIGN.md`](docs/DESIGN.md) for the design and the reasoning behind it, and
-[`packages/rate-limiter/openapi.yaml`](packages/rate-limiter/openapi.yaml) for the HTTP contract.
-The live API renders it as Swagger UI at https://convert-digital-rate-limiter.fly.dev/docs.
+Start with [`docs/DESIGN.md`](docs/DESIGN.md) (rate limiter) and [`docs/CHAT.md`](docs/CHAT.md)
+(chat server) for the designs and the reasoning behind them. The contracts are
+[`packages/rate-limiter/openapi.yaml`](packages/rate-limiter/openapi.yaml),
+[`packages/chat-server/openapi.yaml`](packages/chat-server/openapi.yaml) and
+[`packages/chat-server/asyncapi.yaml`](packages/chat-server/asyncapi.yaml). Live docs:
+https://convert-digital-rate-limiter.fly.dev/docs and https://convert-digital-chat.fly.dev/docs.
 The live API renders it as Swagger UI at https://convert-digital-rate-limiter.fly.dev/docs.
 
 ## Quick start (Docker)
@@ -19,12 +23,12 @@ Requirements: Docker with Compose v2 and `make`. Node 24 is only needed for opti
 
 ```bash
 make            # list every target
-make dev        # app with hot reload + Redis  →  http://localhost:3000
+make dev        # rate limiter :3000, chat server :3001, hot reload, Redis
 make test       # the whole test suite, inside Docker, against the compose Redis
 make smoke      # build the production image, start it, run the black-box smoke suite, tear down
 ```
 
-Something else on port 3000 or 6379? `APP_PORT=3100 make dev`, `REDIS_PORT=6380 make dev`.
+Ports taken? `APP_PORT=3100 CHAT_PORT=3101 REDIS_PORT=6380 make dev`.
 
 Try it:
 
@@ -75,7 +79,8 @@ runbook (setup, secrets, rollback, scaling, cost).
 ## Repository layout
 
 ```
-docs/DESIGN.md                      design & decisions
+docs/DESIGN.md                      rate limiter design & decisions
+docs/CHAT.md                        chat server design & storage rationale
 docs/DEPLOYMENT.md                  Fly.io runbook
 fly.toml                            Fly.io app configuration (no secrets)
 Makefile                            local entry points (make = Docker; npm = Node tasks)
@@ -84,6 +89,7 @@ compose.yaml                        local development: redis, app, test runner
 compose.prod.yaml                   production image + redis + smoke runner
 .github/workflows/ci.yml            check + smoke in Docker, then deploy to Fly and smoke the live URL
 packages/rate-limiter/              Option 1 (see its README)
+packages/chat-server/               Option 2 (see its README)
 ```
 
 ## How it was built
