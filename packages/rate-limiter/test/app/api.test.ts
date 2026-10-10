@@ -100,6 +100,13 @@ describe('demo API over a real HTTP server and real Redis', () => {
   }
 
   describe('meta', () => {
+    it('GET / redirects to the docs', async () => {
+      const { api } = await boot();
+      const res = await api.get('/', { expect: 302 });
+      expect(res.headers.location).toBe('/docs');
+      await expectContract(res, 'GET', '/');
+    });
+
     it('GET /health reports Redis as up', async () => {
       const { api } = await boot();
       const res = await api.get('/health', { expect: 200 });

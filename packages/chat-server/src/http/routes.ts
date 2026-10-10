@@ -62,6 +62,9 @@ export function createRoutes(ctx: RoutesContext): Router {
     ]);
     return { redis: redisUp ? 'up' : 'down', database: dbUp ? 'up' : 'down' };
   };
+  router.get('/', (_req, res) => {
+    res.status(302).set('Location', '/docs').end(); // no body, as documented
+  });
   router.get('/health', async (_req, res) => {
     const c = await checks();
     const body: Schemas['Health'] = {

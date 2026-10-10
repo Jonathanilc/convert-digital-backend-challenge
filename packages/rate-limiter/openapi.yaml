@@ -39,6 +39,18 @@ tags:
     description: Health, readiness and documentation. Not rate limited.
 
 paths:
+  /:
+    get:
+      operationId: getRoot
+      tags: [Meta]
+      summary: Redirects to the interactive documentation
+      responses:
+        '302':
+          description: See `/docs`.
+          headers:
+            Location:
+              schema: { type: string, const: /docs }
+
   /health:
     get:
       operationId: getHealth

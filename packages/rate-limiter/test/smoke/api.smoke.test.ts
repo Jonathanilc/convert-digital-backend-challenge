@@ -52,6 +52,11 @@ describe(`smoke against ${APP_URL}`, () => {
     await expectContract(res, 'GET', '/docs');
   });
 
+  it('sends visitors of the bare hostname to the docs', async () => {
+    const res = await api.get('/', { expect: 302 });
+    expect(res.headers.location).toBe('/docs');
+  });
+
   it('serves its OpenAPI document', async () => {
     const res = await api.get('/openapi.json', { expect: 200 });
     expect(res.body.openapi).toBe('3.1.0');

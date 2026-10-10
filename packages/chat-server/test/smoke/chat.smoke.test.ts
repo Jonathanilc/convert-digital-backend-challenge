@@ -39,6 +39,11 @@ describe(`chat smoke against ${APP_URL}`, () => {
     await expectContract(await api.get('/ready', { expect: 200 }), 'GET', '/ready');
   });
 
+  it('sends visitors of the bare hostname to the docs', async () => {
+    const res = await api.get('/', { expect: 302 });
+    expect(res.headers.location).toBe('/docs');
+  });
+
   it('serves both contracts and the docs page', async () => {
     const openapi = await api.get('/openapi.json', { expect: 200 });
     expect(openapi.body.openapi).toBe('3.1.0');

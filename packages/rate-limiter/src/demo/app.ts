@@ -155,6 +155,10 @@ export function createApp({
   );
 
   // 5. Routes.
+  app.get('/', (_req, res) => {
+    res.status(302).set('Location', '/docs').end(); // no body, as documented
+  });
+
   app.get('/health', async (_req, res) => {
     let redisStatus: Schemas['Health']['checks']['redis'] = 'up';
     try {

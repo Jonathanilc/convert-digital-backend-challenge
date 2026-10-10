@@ -11,6 +11,13 @@ describe('chat HTTP API (real server, real Redis, real SQLite)', () => {
   });
 
   describe('meta', () => {
+    it('GET / redirects to the docs', async () => {
+      booted = await boot();
+      const res = await booted.api.get('/', { expect: 302 });
+      expect(res.headers.location).toBe('/docs');
+      await expectContract(res, 'GET', '/');
+    });
+
     it('reports health, readiness, and serves both contracts and the docs page', async () => {
       booted = await boot();
       const health = await booted.api.get('/health', { expect: 200 });
