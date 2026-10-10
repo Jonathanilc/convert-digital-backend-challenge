@@ -1,0 +1,484 @@
+asyncapi: 3.0.0
+info:
+  title: Chat Server WebSocket API
+  version: 0.1.0
+  description: |
+    Real-time chat over a single WebSocket per client. Every frame is a JSON object with a `type`
+    discriminator. Client commands may carry a correlation `id`, which the server echoes in the
+    matching `ack` or `error`. Server events for a room are fanned out to every socket that has
+    joined that room; `mention` is delivered to the mentioned user on every one of their sockets.
+
+    Authentication: a JWT from `POST /auth/login` (see openapi.yaml), presented on the upgrade
+    request either as `?token=<jwt>` (browsers) or `Authorization: Bearer <jwt>`.
+    Invalid or missing tokens are rejected with HTTP 401 before the socket is established.
+
+    Inbound frames are validated against these schemas; a frame that does not match is answered
+    with `error { code: invalid_frame }` and the connection stays open.
+defaultContentType: application/json
+
+servers:
+  local:
+    host: localhost:3001
+    pathname: /ws
+    protocol: ws
+    description: Local development.
+  production:
+    host: convert-digital-chat.fly.dev
+    pathname: /ws
+    protocol: wss
+    description: Fly.io deployment.
+
+channels:
+  chat:
+    address: /ws
+    title: Chat channel
+    description: One multiplexed channel; the frame `type` selects the message.
+    bindings:
+      ws:
+        bindingVersion: 0.1.0
+        method: GET
+        query:
+          type: object
+          additionalProperties: false
+          properties:
+            token:
+              type: string
+              description: JWT, alternative to the Authorization header.
+    messages:
+      join: { $ref: '#/components/messages/join' }
+      leave: { $ref: '#/components/messages/leave' }
+      send: { $ref: '#/components/messages/send' }
+      edit: { $ref: '#/components/messages/edit' }
+      delete: { $ref: '#/components/messages/delete' }
+      ack: { $ref: '#/components/messages/ack' }
+      error: { $ref: '#/components/messages/error' }
+      joined: { $ref: '#/components/messages/joined' }
+      left: { $ref: '#/components/messages/left' }
+      roomSnapshot: { $ref: '#/components/messages/roomSnapshot' }
+      message: { $ref: '#/components/messages/message' }
+      messageEdited: { $ref: '#/components/messages/messageEdited' }
+      messageDeleted: { $ref: '#/components/messages/messageDeleted' }
+      mention: { $ref: '#/components/messages/mention' }
+
+operations:
+  receiveJoin:
+    action: receive
+    channel: { $ref: '#/channels/chat' }
+    summary: Client joins a room (public, or private with membership)
+    messages: [{ $ref: '#/channels/chat/messages/join' }]
+    reply:
+      channel: { $ref: '#/channels/chat' }
+      messages:
+        - { $ref: '#/channels/chat/messages/ack' }
+        - { $ref: '#/channels/chat/messages/error' }
+  receiveLeave:
+    action: receive
+    channel: { $ref: '#/channels/chat' }
+    summary: Client leaves a room
+    messages: [{ $ref: '#/channels/chat/messages/leave' }]
+    reply:
+      channel: { $ref: '#/channels/chat' }
+      messages:
+        - { $ref: '#/channels/chat/messages/ack' }
+        - { $ref: '#/channels/chat/messages/error' }
+  receiveSend:
+    action: receive
+    channel: { $ref: '#/channels/chat' }
+    summary: Client sends a message to a joined room (rate limited per user)
+    messages: [{ $ref: '#/channels/chat/messages/send' }]
+    reply:
+      channel: { $ref: '#/channels/chat' }
+      messages:
+        - { $ref: '#/channels/chat/messages/ack' }
+        - { $ref: '#/channels/chat/messages/error' }
+  receiveEdit:
+    action: receive
+    channel: { $ref: '#/channels/chat' }
+    summary: Author or admin edits a message
+    messages: [{ $ref: '#/channels/chat/messages/edit' }]
+    reply:
+      channel: { $ref: '#/channels/chat' }
+      messages:
+        - { $ref: '#/channels/chat/messages/ack' }
+        - { $ref: '#/channels/chat/messages/error' }
+  receiveDelete:
+    action: receive
+    channel: { $ref: '#/channels/chat' }
+    summary: Author or admin deletes a message (soft delete)
+    messages: [{ $ref: '#/channels/chat/messages/delete' }]
+    reply:
+      channel: { $ref: '#/channels/chat' }
+      messages:
+        - { $ref: '#/channels/chat/messages/ack' }
+        - { $ref: '#/channels/chat/messages/error' }
+  sendJoined:
+    action: send
+    channel: { $ref: '#/channels/chat' }
+    summary: Broadcast when a user joins a room
+    messages: [{ $ref: '#/channels/chat/messages/joined' }]
+  sendLeft:
+    action: send
+    channel: { $ref: '#/channels/chat' }
+    summary: Broadcast when a user leaves a room, is kicked, or the room is deleted (then each member receives their own `left`)
+    messages: [{ $ref: '#/channels/chat/messages/left' }]
+  sendRoomSnapshot:
+    action: send
+    channel: { $ref: '#/channels/chat' }
+    summary: Sent to the joining client only; current members and recent history
+    messages: [{ $ref: '#/channels/chat/messages/roomSnapshot' }]
+  sendMessage:
+    action: send
+    channel: { $ref: '#/channels/chat' }
+    summary: Broadcast of a new message
+    messages: [{ $ref: '#/channels/chat/messages/message' }]
+  sendMessageEdited:
+    action: send
+    channel: { $ref: '#/channels/chat' }
+    messages: [{ $ref: '#/channels/chat/messages/messageEdited' }]
+  sendMessageDeleted:
+    action: send
+    channel: { $ref: '#/channels/chat' }
+    messages: [{ $ref: '#/channels/chat/messages/messageDeleted' }]
+  sendMention:
+    action: send
+    channel: { $ref: '#/channels/chat' }
+    summary: Delivered to a mentioned user on all their sockets
+    messages: [{ $ref: '#/channels/chat/messages/mention' }]
+  sendError:
+    action: send
+    channel: { $ref: '#/channels/chat' }
+    summary: Unsolicited error, e.g. an unparsable frame
+    messages: [{ $ref: '#/channels/chat/messages/error' }]
+
+components:
+  messages:
+    join:
+      name: join
+      title: Join a room
+      payload: { $ref: '#/components/schemas/JoinFrame' }
+    leave:
+      name: leave
+      title: Leave a room
+      payload: { $ref: '#/components/schemas/LeaveFrame' }
+    send:
+      name: send
+      title: Send a message
+      payload: { $ref: '#/components/schemas/SendFrame' }
+    edit:
+      name: edit
+      title: Edit a message
+      payload: { $ref: '#/components/schemas/EditFrame' }
+    delete:
+      name: delete
+      title: Delete a message
+      payload: { $ref: '#/components/schemas/DeleteFrame' }
+    ack:
+      name: ack
+      title: Command accepted
+      payload: { $ref: '#/components/schemas/AckFrame' }
+    error:
+      name: error
+      title: Command rejected or frame invalid
+      payload: { $ref: '#/components/schemas/ErrorFrame' }
+    joined:
+      name: joined
+      payload: { $ref: '#/components/schemas/JoinedFrame' }
+    left:
+      name: left
+      payload: { $ref: '#/components/schemas/LeftFrame' }
+    roomSnapshot:
+      name: room.snapshot
+      payload: { $ref: '#/components/schemas/RoomSnapshotFrame' }
+    message:
+      name: message
+      payload: { $ref: '#/components/schemas/MessageFrame' }
+    messageEdited:
+      name: message.edited
+      payload: { $ref: '#/components/schemas/MessageEditedFrame' }
+    messageDeleted:
+      name: message.deleted
+      payload: { $ref: '#/components/schemas/MessageDeletedFrame' }
+    mention:
+      name: mention
+      payload: { $ref: '#/components/schemas/MentionFrame' }
+
+  schemas:
+    Ulid:
+      type: string
+      pattern: '^[0-9A-HJKMNP-TV-Z]{26}$'
+      description: Time-sortable identifier (ULID).
+    CorrelationId:
+      type: string
+      minLength: 1
+      maxLength: 64
+      description: Client-chosen id, echoed in the matching ack or error.
+    Username:
+      type: string
+      pattern: '^[a-z0-9_]{3,32}$'
+    Body:
+      type: string
+      minLength: 1
+      maxLength: 2000
+      description: Message text. Mentions are written as `@username`.
+    DateTime:
+      type: string
+      format: date-time
+
+    User:
+      type: object
+      required: [id, username, role]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/Ulid' }
+        username: { $ref: '#/components/schemas/Username' }
+        role: { type: string, enum: [user, admin] }
+
+    Room:
+      type: object
+      required: [id, name, visibility, ownerId]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/Ulid' }
+        name: { type: string, minLength: 1, maxLength: 64 }
+        visibility: { type: string, enum: [public, private] }
+        ownerId: { $ref: '#/components/schemas/Ulid' }
+
+    Message:
+      type: object
+      required: [id, roomId, user, body, mentions, createdAt, editedAt, deletedAt]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/Ulid' }
+        roomId: { $ref: '#/components/schemas/Ulid' }
+        user: { $ref: '#/components/schemas/User' }
+        body: { type: string, description: Empty string when deleted. }
+        mentions:
+          type: array
+          items: { $ref: '#/components/schemas/User' }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        editedAt:
+          oneOf: [{ $ref: '#/components/schemas/DateTime' }, { type: 'null' }]
+        deletedAt:
+          oneOf: [{ $ref: '#/components/schemas/DateTime' }, { type: 'null' }]
+
+    # ---- client → server ----
+    JoinFrame:
+      type: object
+      required: [type, payload]
+      additionalProperties: false
+      properties:
+        type: { const: join }
+        id: { $ref: '#/components/schemas/CorrelationId' }
+        payload:
+          type: object
+          required: [roomId]
+          additionalProperties: false
+          properties:
+            roomId: { $ref: '#/components/schemas/Ulid' }
+    LeaveFrame:
+      type: object
+      required: [type, payload]
+      additionalProperties: false
+      properties:
+        type: { const: leave }
+        id: { $ref: '#/components/schemas/CorrelationId' }
+        payload:
+          type: object
+          required: [roomId]
+          additionalProperties: false
+          properties:
+            roomId: { $ref: '#/components/schemas/Ulid' }
+    SendFrame:
+      type: object
+      required: [type, payload]
+      additionalProperties: false
+      properties:
+        type: { const: send }
+        id: { $ref: '#/components/schemas/CorrelationId' }
+        payload:
+          type: object
+          required: [roomId, body]
+          additionalProperties: false
+          properties:
+            roomId: { $ref: '#/components/schemas/Ulid' }
+            body: { $ref: '#/components/schemas/Body' }
+    EditFrame:
+      type: object
+      required: [type, payload]
+      additionalProperties: false
+      properties:
+        type: { const: edit }
+        id: { $ref: '#/components/schemas/CorrelationId' }
+        payload:
+          type: object
+          required: [messageId, body]
+          additionalProperties: false
+          properties:
+            messageId: { $ref: '#/components/schemas/Ulid' }
+            body: { $ref: '#/components/schemas/Body' }
+    DeleteFrame:
+      type: object
+      required: [type, payload]
+      additionalProperties: false
+      properties:
+        type: { const: delete }
+        id: { $ref: '#/components/schemas/CorrelationId' }
+        payload:
+          type: object
+          required: [messageId]
+          additionalProperties: false
+          properties:
+            messageId: { $ref: '#/components/schemas/Ulid' }
+    ClientFrame:
+      oneOf:
+        - { $ref: '#/components/schemas/JoinFrame' }
+        - { $ref: '#/components/schemas/LeaveFrame' }
+        - { $ref: '#/components/schemas/SendFrame' }
+        - { $ref: '#/components/schemas/EditFrame' }
+        - { $ref: '#/components/schemas/DeleteFrame' }
+
+    # ---- server → client ----
+    AckFrame:
+      type: object
+      required: [type, id, payload]
+      additionalProperties: false
+      properties:
+        type: { const: ack }
+        id: { $ref: '#/components/schemas/CorrelationId' }
+        payload:
+          type: object
+          additionalProperties: false
+          properties:
+            messageId:
+              $ref: '#/components/schemas/Ulid'
+              description: Present for an acknowledged `send`.
+    ErrorFrame:
+      type: object
+      required: [type, payload]
+      additionalProperties: false
+      properties:
+        type: { const: error }
+        id: { $ref: '#/components/schemas/CorrelationId' }
+        payload:
+          type: object
+          required: [code, message]
+          additionalProperties: false
+          properties:
+            code:
+              type: string
+              enum:
+                [
+                  invalid_frame,
+                  unauthorized,
+                  forbidden,
+                  not_found,
+                  not_joined,
+                  rate_limited,
+                  banned,
+                  internal,
+                ]
+            message: { type: string }
+            retryAfterMs: { type: integer, minimum: 0 }
+    JoinedFrame:
+      type: object
+      required: [type, payload]
+      additionalProperties: false
+      properties:
+        type: { const: joined }
+        payload:
+          type: object
+          required: [roomId, user]
+          additionalProperties: false
+          properties:
+            roomId: { $ref: '#/components/schemas/Ulid' }
+            user: { $ref: '#/components/schemas/User' }
+    LeftFrame:
+      type: object
+      required: [type, payload]
+      additionalProperties: false
+      properties:
+        type: { const: left }
+        payload:
+          type: object
+          required: [roomId, user]
+          additionalProperties: false
+          properties:
+            roomId: { $ref: '#/components/schemas/Ulid' }
+            user: { $ref: '#/components/schemas/User' }
+    RoomSnapshotFrame:
+      type: object
+      required: [type, payload]
+      additionalProperties: false
+      properties:
+        type: { const: room.snapshot }
+        payload:
+          type: object
+          required: [room, members, messages]
+          additionalProperties: false
+          properties:
+            room: { $ref: '#/components/schemas/Room' }
+            members:
+              type: array
+              items: { $ref: '#/components/schemas/User' }
+            messages:
+              type: array
+              description: Most recent messages, oldest first.
+              items: { $ref: '#/components/schemas/Message' }
+    MessageFrame:
+      type: object
+      required: [type, payload]
+      additionalProperties: false
+      properties:
+        type: { const: message }
+        payload: { $ref: '#/components/schemas/Message' }
+    MessageEditedFrame:
+      type: object
+      required: [type, payload]
+      additionalProperties: false
+      properties:
+        type: { const: message.edited }
+        payload:
+          type: object
+          required: [id, roomId, body, editedAt]
+          additionalProperties: false
+          properties:
+            id: { $ref: '#/components/schemas/Ulid' }
+            roomId: { $ref: '#/components/schemas/Ulid' }
+            body: { $ref: '#/components/schemas/Body' }
+            editedAt: { $ref: '#/components/schemas/DateTime' }
+    MessageDeletedFrame:
+      type: object
+      required: [type, payload]
+      additionalProperties: false
+      properties:
+        type: { const: message.deleted }
+        payload:
+          type: object
+          required: [id, roomId]
+          additionalProperties: false
+          properties:
+            id: { $ref: '#/components/schemas/Ulid' }
+            roomId: { $ref: '#/components/schemas/Ulid' }
+    MentionFrame:
+      type: object
+      required: [type, payload]
+      additionalProperties: false
+      properties:
+        type: { const: mention }
+        payload:
+          type: object
+          required: [message]
+          additionalProperties: false
+          properties:
+            message: { $ref: '#/components/schemas/Message' }
+    ServerFrame:
+      oneOf:
+        - { $ref: '#/components/schemas/AckFrame' }
+        - { $ref: '#/components/schemas/ErrorFrame' }
+        - { $ref: '#/components/schemas/JoinedFrame' }
+        - { $ref: '#/components/schemas/LeftFrame' }
+        - { $ref: '#/components/schemas/RoomSnapshotFrame' }
+        - { $ref: '#/components/schemas/MessageFrame' }
+        - { $ref: '#/components/schemas/MessageEditedFrame' }
+        - { $ref: '#/components/schemas/MessageDeletedFrame' }
+        - { $ref: '#/components/schemas/MentionFrame' }

@@ -1,0 +1,600 @@
+openapi: 3.1.0
+info:
+  title: Chat Server HTTP API
+  version: 0.1.0
+  summary: Accounts, rooms, message history and administration for the WebSocket chat.
+  description: |
+    The real-time side of the chat is a WebSocket at `/ws`, documented in `asyncapi.yaml`
+    (served at `/asyncapi.yaml`). This document covers everything request/response:
+
+    - **Accounts**: register and log in to obtain a JWT used for both HTTP (`Authorization: Bearer`)
+      and the WebSocket upgrade (`?token=`).
+    - **Rooms**: list, create, inspect, and manage membership of private rooms.
+    - **History**: keyset-paginated message history per room (`before` cursor = last message id seen).
+    - **Admin**: users and rooms management for accounts with the `admin` role.
+
+    `/auth/*` is rate limited per IP (default 5 attempts per 15 minutes) with the IETF `RateLimit-*`
+    headers; message sending is rate limited per user over the WebSocket.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: /
+    description: The server this document was fetched from
+tags:
+  - name: Accounts
+  - name: Rooms
+  - name: History
+  - name: Admin
+    description: Requires a JWT whose user has the `admin` role.
+  - name: Meta
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      tags: [Meta]
+      summary: Liveness and dependency check
+      responses:
+        '200':
+          description: Up; `degraded` when Redis or the database is unreachable.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+  /ready:
+    get:
+      operationId: getReadiness
+      tags: [Meta]
+      summary: Readiness probe
+      responses:
+        '200':
+          description: Ready.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Readiness' }
+        '503':
+          description: Not ready (database unavailable).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Readiness' }
+  /docs:
+    get:
+      operationId: getDocs
+      tags: [Meta]
+      summary: Interactive documentation (Swagger UI for HTTP; link to the AsyncAPI document)
+      responses:
+        '200':
+          description: HTML page.
+          content:
+            text/html:
+              schema: { type: string }
+  /openapi.json:
+    get:
+      operationId: getOpenApiDocument
+      tags: [Meta]
+      summary: This document as JSON
+      responses:
+        '200':
+          description: The OpenAPI document.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  /asyncapi.yaml:
+    get:
+      operationId: getAsyncApiDocument
+      tags: [Meta]
+      summary: The WebSocket contract
+      responses:
+        '200':
+          description: The AsyncAPI document.
+          content:
+            application/yaml:
+              schema: { type: string }
+
+  /auth/register:
+    post:
+      operationId: register
+      tags: [Accounts]
+      summary: Create an account and receive a token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Credentials' }
+      responses:
+        '201':
+          description: Account created.
+          headers:
+            RateLimit-Limit: { $ref: '#/components/headers/RateLimit-Limit' }
+            RateLimit-Remaining: { $ref: '#/components/headers/RateLimit-Remaining' }
+            RateLimit-Reset: { $ref: '#/components/headers/RateLimit-Reset' }
+            RateLimit-Policy: { $ref: '#/components/headers/RateLimit-Policy' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /auth/login:
+    post:
+      operationId: login
+      tags: [Accounts]
+      summary: Exchange credentials for a token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Credentials' }
+      responses:
+        '200':
+          description: Token issued.
+          headers:
+            RateLimit-Limit: { $ref: '#/components/headers/RateLimit-Limit' }
+            RateLimit-Remaining: { $ref: '#/components/headers/RateLimit-Remaining' }
+            RateLimit-Reset: { $ref: '#/components/headers/RateLimit-Reset' }
+            RateLimit-Policy: { $ref: '#/components/headers/RateLimit-Policy' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /me:
+    get:
+      operationId: getMe
+      tags: [Accounts]
+      summary: The authenticated user
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /rooms:
+    get:
+      operationId: listRooms
+      tags: [Rooms]
+      summary: Rooms visible to the caller (all public rooms plus private rooms they belong to)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoomList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      operationId: createRoom
+      tags: [Rooms]
+      summary: Create a room; the creator becomes owner and first member
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateRoomRequest' }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Room' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /rooms/{roomId}:
+    parameters:
+      - { $ref: '#/components/parameters/RoomId' }
+    get:
+      operationId: getRoom
+      tags: [Rooms]
+      summary: Room details and members
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoomDetails' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /rooms/{roomId}/members:
+    parameters:
+      - { $ref: '#/components/parameters/RoomId' }
+    post:
+      operationId: addRoomMember
+      tags: [Rooms]
+      summary: Add a member to a private room (owner or admin)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddMemberRequest' }
+      responses:
+        '204': { description: Added (or already a member). }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /rooms/{roomId}/messages:
+    parameters:
+      - { $ref: '#/components/parameters/RoomId' }
+    get:
+      operationId: listMessages
+      tags: [History]
+      summary: Message history, newest first, keyset-paginated
+      description: |
+        Returns up to `limit` messages with id < `before` (or the newest when `before` is omitted),
+        newest first. Pass `nextCursor` back as `before` to go further into the past. Deleted
+        messages appear as tombstones (`deletedAt` set, empty `body`) so clients can render
+        "message deleted" in place.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: before
+          in: query
+          required: false
+          schema: { $ref: '#/components/schemas/Ulid' }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessagePage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/users:
+    get:
+      operationId: adminListUsers
+      tags: [Admin]
+      summary: All users
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/users/{userId}/ban:
+    parameters:
+      - { $ref: '#/components/parameters/UserId' }
+    put:
+      operationId: adminBanUser
+      tags: [Admin]
+      summary: Ban a user (disconnects their sockets; login refused)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Banned. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      operationId: adminUnbanUser
+      tags: [Admin]
+      summary: Lift a ban
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Unbanned. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/rooms:
+    get:
+      operationId: adminListRooms
+      tags: [Admin]
+      summary: All rooms with member counts
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminRoomList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/rooms/{roomId}:
+    parameters:
+      - { $ref: '#/components/parameters/RoomId' }
+    delete:
+      operationId: adminDeleteRoom
+      tags: [Admin]
+      summary: Delete a room and its history; connected members are told they left
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Deleted. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/rooms/{roomId}/kick:
+    parameters:
+      - { $ref: '#/components/parameters/RoomId' }
+    post:
+      operationId: adminKickUser
+      tags: [Admin]
+      summary: Remove a user from a room and close their sockets for it
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/KickRequest' }
+      responses:
+        '204': { description: Kicked. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    RoomId:
+      name: roomId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Ulid' }
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Ulid' }
+
+  headers:
+    RateLimit-Limit:
+      schema: { type: integer, minimum: 0 }
+    RateLimit-Remaining:
+      schema: { type: integer, minimum: 0 }
+    RateLimit-Reset:
+      schema: { type: integer, minimum: 0 }
+    RateLimit-Policy:
+      schema: { type: string, pattern: '^[0-9]+;w=[0-9]+$' }
+    Retry-After:
+      schema: { type: integer, minimum: 1 }
+
+  responses:
+    BadRequest:
+      description: The request does not match this contract.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing, invalid or expired token; or wrong credentials.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Authenticated but not allowed (not a member, not the author, not an admin), or the account is banned.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: No such resource.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Username or room name already taken.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Rate limit exhausted.
+      headers:
+        Retry-After: { $ref: '#/components/headers/Retry-After' }
+        RateLimit-Limit: { $ref: '#/components/headers/RateLimit-Limit' }
+        RateLimit-Remaining: { $ref: '#/components/headers/RateLimit-Remaining' }
+        RateLimit-Reset: { $ref: '#/components/headers/RateLimit-Reset' }
+        RateLimit-Policy: { $ref: '#/components/headers/RateLimit-Policy' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/RateLimitError' }
+
+  schemas:
+    Ulid:
+      type: string
+      pattern: '^[0-9A-HJKMNP-TV-Z]{26}$'
+    Username:
+      type: string
+      pattern: '^[a-z0-9_]{3,32}$'
+    Error:
+      type: object
+      required: [error, message]
+      additionalProperties: false
+      properties:
+        error: { type: string }
+        message: { type: string }
+        details:
+          type: array
+          items:
+            type: object
+            required: [path, message]
+            additionalProperties: false
+            properties:
+              path: { type: string }
+              message: { type: string }
+    RateLimitError:
+      type: object
+      required: [error, message, limit, remaining, retryAfterSeconds]
+      additionalProperties: false
+      properties:
+        error: { type: string, const: Too Many Requests }
+        message: { type: string }
+        limit: { type: integer, minimum: 0 }
+        remaining: { type: integer, const: 0 }
+        retryAfterSeconds: { type: integer, minimum: 1 }
+        override: { type: string }
+    Health:
+      type: object
+      required: [status, checks]
+      additionalProperties: false
+      properties:
+        status: { type: string, enum: [ok, degraded] }
+        checks:
+          type: object
+          required: [redis, database]
+          additionalProperties: false
+          properties:
+            redis: { type: string, enum: [up, down] }
+            database: { type: string, enum: [up, down] }
+    Readiness:
+      type: object
+      required: [status, checks]
+      additionalProperties: false
+      properties:
+        status: { type: string, enum: [ready, not-ready] }
+        checks:
+          type: object
+          required: [redis, database]
+          additionalProperties: false
+          properties:
+            redis: { type: string, enum: [up, down] }
+            database: { type: string, enum: [up, down] }
+    Credentials:
+      type: object
+      required: [username, password]
+      additionalProperties: false
+      properties:
+        username: { $ref: '#/components/schemas/Username' }
+        password: { type: string, minLength: 8, maxLength: 128 }
+    User:
+      type: object
+      required: [id, username, role]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/Ulid' }
+        username: { $ref: '#/components/schemas/Username' }
+        role: { type: string, enum: [user, admin] }
+    AdminUser:
+      type: object
+      required: [id, username, role, bannedAt, createdAt]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/Ulid' }
+        username: { $ref: '#/components/schemas/Username' }
+        role: { type: string, enum: [user, admin] }
+        bannedAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+    AuthResponse:
+      type: object
+      required: [token, user]
+      additionalProperties: false
+      properties:
+        token: { type: string, description: JWT (HS256). }
+        user: { $ref: '#/components/schemas/User' }
+    Room:
+      type: object
+      required: [id, name, visibility, ownerId]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/Ulid' }
+        name: { type: string, minLength: 1, maxLength: 64 }
+        visibility: { type: string, enum: [public, private] }
+        ownerId: { $ref: '#/components/schemas/Ulid' }
+    RoomDetails:
+      type: object
+      required: [room, members]
+      additionalProperties: false
+      properties:
+        room: { $ref: '#/components/schemas/Room' }
+        members:
+          type: array
+          items: { $ref: '#/components/schemas/User' }
+    RoomList:
+      type: object
+      required: [rooms]
+      additionalProperties: false
+      properties:
+        rooms:
+          type: array
+          items: { $ref: '#/components/schemas/Room' }
+    AdminRoomList:
+      type: object
+      required: [rooms]
+      additionalProperties: false
+      properties:
+        rooms:
+          type: array
+          items:
+            type: object
+            required: [room, memberCount, messageCount]
+            additionalProperties: false
+            properties:
+              room: { $ref: '#/components/schemas/Room' }
+              memberCount: { type: integer, minimum: 0 }
+              messageCount: { type: integer, minimum: 0 }
+    CreateRoomRequest:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 64, pattern: '^[a-z0-9][a-z0-9-]*$' }
+        visibility: { type: string, enum: [public, private], default: public }
+    AddMemberRequest:
+      type: object
+      required: [userId]
+      additionalProperties: false
+      properties:
+        userId: { $ref: '#/components/schemas/Ulid' }
+    KickRequest:
+      type: object
+      required: [userId]
+      additionalProperties: false
+      properties:
+        userId: { $ref: '#/components/schemas/Ulid' }
+    UserList:
+      type: object
+      required: [users]
+      additionalProperties: false
+      properties:
+        users:
+          type: array
+          items: { $ref: '#/components/schemas/AdminUser' }
+    Message:
+      type: object
+      required: [id, roomId, user, body, mentions, createdAt, editedAt, deletedAt]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/Ulid' }
+        roomId: { $ref: '#/components/schemas/Ulid' }
+        user: { $ref: '#/components/schemas/User' }
+        body: { type: string }
+        mentions:
+          type: array
+          items: { $ref: '#/components/schemas/User' }
+        createdAt: { type: string, format: date-time }
+        editedAt: { type: [string, 'null'], format: date-time }
+        deletedAt: { type: [string, 'null'], format: date-time }
+    MessagePage:
+      type: object
+      required: [messages, nextCursor]
+      additionalProperties: false
+      properties:
+        messages:
+          type: array
+          description: Newest first.
+          items: { $ref: '#/components/schemas/Message' }
+        nextCursor:
+          type: [string, 'null']
+          description: Pass as `before` to fetch older messages; null when exhausted.
