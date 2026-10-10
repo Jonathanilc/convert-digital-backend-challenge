@@ -1,0 +1,50 @@
+{
+  "name": "@challenge/chat-server",
+  "version": "0.1.0",
+  "description": "WebSocket chat server (rooms, auth, history, mentions, edit/delete, admin) with message rate limiting from @challenge/rate-limiter. Contracts: AsyncAPI 3 for WebSocket frames, OpenAPI 3.1 for HTTP.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:smoke": "vitest run --config vitest.smoke.config.ts",
+    "openapi:types": "openapi-typescript openapi.yaml -o src/generated/openapi.d.ts",
+    "openapi:check": "openapi-typescript openapi.yaml -o /tmp/chat-openapi.check.d.ts >/dev/null && cmp -s /tmp/chat-openapi.check.d.ts src/generated/openapi.d.ts || { echo 'Generated OpenAPI types are stale: run npm run openapi:types'; exit 1; }",
+    "asyncapi:types": "tsx scripts/asyncapi-types.ts",
+    "asyncapi:check": "tsx scripts/asyncapi-types.ts --check",
+    "dev": "tsx watch src/demo/server.ts",
+    "start": "node --no-warnings=ExperimentalWarning dist/demo/server.js"
+  },
+  "dependencies": {
+    "@challenge/rate-limiter": "*",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "express": "^5.2.1",
+    "express-openapi-validator": "^5.6.2",
+    "ioredis": "^6.0.0",
+    "jose": "^6.2.12",
+    "pino": "^10.4.0",
+    "pino-http": "^11.0.0",
+    "ulid": "^3.0.2",
+    "ws": "^8.22.0",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@apidevtools/swagger-parser": "^13.1.0",
+    "@asyncapi/parser": "^3.6.3",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.19.1",
+    "@types/ws": "^8.18.2",
+    "@vitest/coverage-v8": "^5.0.3",
+    "json-schema-to-typescript": "^16.0.0",
+    "openapi-types": "^12.1.3",
+    "openapi-typescript": "^7.13.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.3"
+  }
+}
