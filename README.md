@@ -1,8 +1,10 @@
 # Backend Coding Challenge — Convert Digital
 
-Submission covering **both options**: the API rate limiter (Option 1) and the WebSocket chat
-server (Option 2), which reuses the rate limiting engine for message throttling. One npm
-workspace, one Docker build, one CI pipeline.
+The main submission is **Option 1, the API rate limiter**. **Option 2, the WebSocket chat
+server**, was added out of interest: I understand WebSockets as a long-lived connection where
+client and server keep talking, but had never built a production one before, and the rate
+limiter was a natural fit for its message throttling. One npm workspace, one Docker build, one
+CI pipeline.
 
 | Package                                                    | What it is                                                                                                                                                                                                |
 | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
