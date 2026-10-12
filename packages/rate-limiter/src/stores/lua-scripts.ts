@@ -60,7 +60,9 @@ local oldest = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
 if oldest[2] then
   resetMs = math.floor(tonumber(oldest[2]) + window - now)
   if resetMs < 1 then resetMs = 1 end
-  redis.call('PEXPIRE', KEYS[1], resetMs)
+  -- Garbage collection only: the key must outlive its NEWEST entry (at most one full window from
+  -- now). Expiring it when the oldest entry ages out would drop every younger entry with it.
+  redis.call('PEXPIRE', KEYS[1], window)
 else
   redis.call('DEL', KEYS[1])
 end

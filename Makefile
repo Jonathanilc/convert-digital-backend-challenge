@@ -33,7 +33,7 @@ GIT_SHA       ?= $(shell git rev-parse --short HEAD)
 FLY_IMAGE     ?= registry.fly.io/$(FLY_APP):$(GIT_SHA)
 APP_URL       ?= https://$(FLY_APP).fly.dev
 
-.PHONY: help dev up down logs shell redis test test-watch check fmt openapi-types image prod-up prod-down prod-logs smoke smoke-remote smoke-remote-chat deploy deploy-chat fly-status fly-logs clean
+.PHONY: help dev up down logs shell redis test test-watch check fmt openapi-types image prod-up prod-down prod-logs smoke smoke-remote smoke-remote-chat deploy deploy-chat fly-status fly-logs verify-live clean
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*## "; printf "\nUsage: make <target> [APP_PORT=3100] [REDIS_PORT=6380] [IMAGE=tag]\n"} /^##@/ {printf "\n%s\n", substr($$0, 5)} /^[a-zA-Z0-9_-]+:.*## / {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -118,6 +118,9 @@ fly-status: ## Machines, health and recent releases (FLY_CONFIG=fly.chat.toml fo
 
 fly-logs: ## Tail the Fly app logs (FLY_CONFIG=fly.chat.toml for the chat app)
 	$(FLY) logs --app $(FLY_APP)
+
+verify-live: ## Verify both live apps against the challenge requirements; writes docs/LIVE-VERIFICATION.md
+	set -a; . ./.env.production.local; set +a; npx tsx scripts/live-verification.mts
 
 ##@ Housekeeping
 clean: ## Stop both stacks, remove volumes, delete build and coverage output

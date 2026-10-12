@@ -36,6 +36,28 @@ describe('RedisStore specifics', () => {
     await redis.del(`${prefix}:fw`, `${prefix}:sl`);
   });
 
+  it('keeps younger sliding-log entries when the oldest one ages out (key TTL must follow the newest entry)', async () => {
+    // Regression found by live verification: the key's TTL was set to the oldest entry's expiry, so
+    // when Redis expired the key it dropped every younger entry too and the limiter under-counted.
+    // The fake clock drives the window; Redis TTLs run on the wall clock, hence the real wait below.
+    const redis = client();
+    const clock = fakeClock();
+    const store = new RedisStore(redis, { now: clock.now });
+    const key = testPrefix('sliding-ttl');
+    const opts = { limit: 2, windowMs: 1_000, algorithm: 'sliding-log' as const };
+
+    await store.consume(key, opts); // entry A at t=0 → the buggy TTL would be 1000ms
+    clock.advance(600);
+    await store.consume(key, opts); // entry B at t=600 → the buggy TTL becomes 400ms (A's expiry)
+    expect(await redis.pttl(key)).toBeGreaterThan(900); // must still cover B's whole window
+
+    await new Promise((r) => setTimeout(r, 500)); // let a 400ms TTL elapse on the wall clock
+    clock.advance(100); // t=700: both A and B are still inside the 1000ms window
+    const third = await store.consume(key, opts);
+    expect(third).toMatchObject({ allowed: false, count: 2 }); // B must not have vanished with A
+    await redis.del(key);
+  });
+
   it('does not close a client it was given', async () => {
     const redis = client();
     const quit = vi.spyOn(redis, 'quit');
