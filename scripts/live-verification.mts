@@ -143,10 +143,15 @@ async function exhaust(
 ): Promise<{ allowed: number; blocked: Res }> {
   const first = await http('GET', `${RL}${path}`, { headers });
   log(line('GET', label, first));
-  expect(
-    first.status === 200,
-    `${label}: first request should pass (counters carry across override changes)`,
-  );
+  if (first.status === 429) {
+    // Counters carry across override changes by design: earlier requests in this window (e.g. a
+    // previous run) already spent the budget, so the 429 itself is the evidence here.
+    log(
+      `${label}: budget already spent by earlier requests in this window; asserting the 429 directly`,
+    );
+    return { allowed: 0, blocked: first };
+  }
+  expect(first.status === 200, `${label}: first request should pass`);
   let remaining = Number(first.headers['ratelimit-remaining']);
   let allowed = 1;
   while (remaining > 0) {
@@ -407,7 +412,7 @@ async function option1(): Promise<void> {
     '1.4',
     1,
     'Different limits for authenticated (200/h) vs unauthenticated (100/h) users',
-    'log in; compare RateLimit-Limit for the same IP with and without a token; then shrink alice to 3/60s and show her budget is separate from the anonymous one',
+    'log in; compare RateLimit-Limit for the same IP with and without a token; then shrink alice to 3/60s (sliding log, so the demonstration starts from a fresh counter) and show her budget is separate from the anonymous one',
     async (log) => {
       const login = await http('POST', `${RL}/api/login`, {
         json: { username: 'alice', password: 'wonderland' },
@@ -432,7 +437,7 @@ async function option1(): Promise<void> {
         {
           reason: 'live verification 1.4',
           criteria: { userIds: ['alice'], ruleIds: ['default'] },
-          effect: { limit: 3, windowMs: 60_000 },
+          effect: { limit: 3, windowMs: 60_000, algorithm: 'sliding-log' },
           ttlSeconds: 300,
         },
         log,

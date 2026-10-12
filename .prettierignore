@@ -4,3 +4,4 @@ coverage
 package-lock.json
 packages/rate-limiter/src/demo/generated/
 packages/chat-server/src/generated/
+docs/LIVE-VERIFICATION.md
