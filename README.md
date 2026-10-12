@@ -72,11 +72,12 @@ once, pushed to Fly's registry tagged with the git SHA, rolled out behind the `/
 then smoke-tested at its public URL. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the
 runbook (setup, secrets, rollback, scaling, cost).
 
-| Target                              | Purpose                                                         |
-| ----------------------------------- | --------------------------------------------------------------- |
-| `make deploy`                       | Manual deploy of the current commit (Docker + `fly auth login`) |
-| `make smoke-remote ADMIN_TOKEN=...` | Black-box suite against the live app                            |
-| `make fly-status` / `fly-logs`      | Machines, releases, logs                                        |
+| Target                              | Purpose                                                                                                      |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `make deploy`                       | Manual deploy of the current commit (Docker + `fly auth login`)                                              |
+| `make smoke-remote ADMIN_TOKEN=...` | Black-box suite against the live app                                                                         |
+| `make fly-status` / `fly-logs`      | Machines, releases, logs                                                                                     |
+| `make verify-live`                  | Every challenge requirement against the live apps → [`docs/LIVE-VERIFICATION.md`](docs/LIVE-VERIFICATION.md) |
 
 ## Repository layout
 
@@ -84,6 +85,7 @@ runbook (setup, secrets, rollback, scaling, cost).
 docs/DESIGN.md                      rate limiter design & decisions
 docs/CHAT.md                        chat server design & storage rationale
 docs/DEPLOYMENT.md                  Fly.io runbook
+docs/LIVE-VERIFICATION.md           generated: live run of every requirement against the deployed apps
 fly.toml                            Fly.io app configuration (no secrets)
 Makefile                            local entry points (make = Docker; npm = Node tasks)
 Dockerfile                          deps → dev | build → runtime (the deployable image)

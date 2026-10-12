@@ -105,6 +105,8 @@ drives it with real HTTP requests.
 | Use             | Cheap default                               | Endpoints where precision matters (search, login)     |
 
 Both run as one Lua script so concurrent requests from many Node processes cannot over-admit.
+The ZSET's TTL is garbage collection only and is always one full window from the latest call. An earlier version set it to the moment the _oldest_ entry would age out, which silently dropped every younger entry with it; the live verification (`make verify-live`, scenario 1.5) exposed this and it is now covered by a store test that waits in real time.
+
 Denied requests are **not** written to the sliding log; a client that keeps retrying while
 blocked is not locked out indefinitely.
 
