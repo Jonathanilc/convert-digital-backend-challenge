@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live verification against the challenge requirements</title>
+<style>
+:root { color-scheme: light dark;
+  --bg: #ffffff; --fg: #1b1f23; --muted: #59636e; --line: #d9dee3; --card: #f6f8fa; --code: #eff1f3;
+  --pass: #1a7f37; --pass-bg: #dafbe1; --fail: #cf222e; --fail-bg: #ffebe9; --skip: #9a6700; --skip-bg: #fff8c5; --link: #0969da;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+@media (prefers-color-scheme: dark) { :root {
+  --bg: #0d1117; --fg: #e6edf3; --muted: #8d96a0; --line: #30363d; --card: #161b22; --code: #1f242c;
+  --pass: #3fb950; --pass-bg: #12261e; --fail: #f85149; --fail-bg: #2d1416; --skip: #d29922; --skip-bg: #2a2210; --link: #58a6ff; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 var(--sans); }
+header.top, main, footer { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+header.top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 16px 24px; padding-top: 32px; }
+h1 { font-size: 28px; line-height: 1.2; margin: 0 0 4px; }
+.subtitle { margin: 0; color: var(--muted); font-size: 17px; }
+.provenance { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
+.result { margin: 0; padding: 10px 16px; border-radius: 999px; font-weight: 600; white-space: nowrap; }
+.result.pass { background: var(--pass-bg); color: var(--pass); }
+.result.fail { background: var(--fail-bg); color: var(--fail); }
+h2 { font-size: 20px; margin: 36px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+a { color: var(--link); }
+code { font: 13px var(--mono); background: var(--code); padding: 1px 5px; border-radius: 4px; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 24px 0 0; }
+.facts div { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; min-width: 0; }
+.facts dt { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.facts dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+.prose p, .prose li { max-width: 80ch; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 0 0 12px; font-size: 13px; color: var(--muted); }
+.toolbar button { font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+.toolbar label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.scroll { overflow-x: auto; }
+table.summary { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.summary th, table.summary td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+table.summary thead th { position: sticky; top: 0; background: var(--bg); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+table.summary tr.group th { background: var(--card); font-weight: 600; }
+table.summary td.id { white-space: nowrap; font: 13px var(--mono); }
+table.summary td.scenario { color: var(--muted); }
+table.summary td.num { text-align: right; white-space: nowrap; font: 13px var(--mono); }
+.pill { display: inline-block; font: 600 11px/1 var(--mono); letter-spacing: 0.04em; padding: 4px 7px; border-radius: 999px; }
+.pill.pass { background: var(--pass-bg); color: var(--pass); }
+.pill.fail { background: var(--fail-bg); color: var(--fail); }
+.pill.skip { background: var(--skip-bg); color: var(--skip); }
+details.check { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 12px; background: var(--card); }
+details.check[data-status="fail"] { border-color: var(--fail); }
+details.check summary { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 10px 14px; cursor: pointer; list-style: none; }
+details.check summary::-webkit-details-marker { display: none; }
+details.check summary .id { font: 13px var(--mono); color: var(--muted); }
+details.check summary .title { font-weight: 600; flex: 1 1 auto; }
+details.check summary .meta { font-size: 12px; color: var(--muted); white-space: nowrap; }
+details.check > :not(summary) { margin: 0 14px 12px; }
+details.check .scenario { color: var(--muted); }
+details.check .reason { font-weight: 600; color: var(--fail); }
+details.check .reason.skip { color: var(--skip); }
+pre.evidence { font: 12.5px/1.55 var(--mono); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; white-space: pre-wrap; overflow-wrap: anywhere; margin-bottom: 14px; }
+.st { font-weight: 700; } .st-2xx { color: var(--pass); } .st-3xx { color: var(--link); } .st-4xx { color: var(--skip); } .st-5xx { color: var(--fail); }
+.empty { color: var(--muted); font-style: italic; }
+.fail-only [data-status="pass"], .fail-only [data-status="skip"] { display: none; }
+footer { color: var(--muted); font-size: 12px; padding-top: 24px; padding-bottom: 40px; }
+@media print { .toolbar { display: none; } details.check { break-inside: avoid; } table.summary thead th { position: static; } }
+</style>
+</head>
+<body data-result="pass">
+<header class="top">
+<div>
+<h1>Live verification against the challenge requirements</h1>
+<p class="subtitle">Both deployed applications, exercised over the public internet</p>
+<p class="provenance">Generated <time datetime="2026-10-13T22:23:00.686Z">2026-10-13T22:23:00.686Z</time> by <code>scripts/live-verification.mts</code> at commit <code>bd72b1b</code> (14/10/2026, 11:23:00 am NZ).</p>
+</div>
+<p class="result pass">16/16 passed</p>
+</header>
+<main>
+<dl class="facts">
+<div><dt>Option 1 · API rate limiter</dt><dd><a href="https://convert-digital-rate-limiter.fly.dev" target="_blank" rel="noopener noreferrer">https://convert-digital-rate-limiter.fly.dev</a></dd></div>
+<div><dt>Option 1 · deployed image</dt><dd><code>convert-digital-rate-limiter:bd72b1b</code></dd></div>
+<div><dt>Option 2 · WebSocket chat server</dt><dd><a href="https://convert-digital-chat.fly.dev" target="_blank" rel="noopener noreferrer">https://convert-digital-chat.fly.dev</a></dd></div>
+<div><dt>Option 2 · deployed image</dt><dd><code>convert-digital-chat:bd72b1b</code></dd></div>
+</dl>
+<section class="prose">
+<h2>Method</h2>
+<p>Every check ran against the deployed applications over the public internet from one machine. Limits were shrunk for this machine&#39;s IP alone through the temporary-override API, so real 429s, <code>Retry-After</code> values and sliding-window behaviour could be observed within seconds without affecting other visitors. Budgets are read from the server&#39;s own <code>RateLimit-Remaining</code> header rather than assumed, because counters deliberately carry across override changes. All overrides and test rooms were removed at the end. Tokens and secrets are redacted. Re-run with <code>make verify-live</code>.</p>
+<p>What this complements: the automated suites, run in Docker on every push and in CI against real Redis and real sockets, cover behaviours that cannot be exercised safely on a live system, in particular fail-open / fail-closed under a Redis outage and exactly-<code>limit</code> admission under concurrent requests.</p>
+<p>Re-run constraints: the chat server allows 5 logins per IP per 15 minutes and this script uses 3, so run it at most once per 15 minutes; each run also adds about a dozen anonymous requests to this IP&#39;s hourly budget on the rate limiter.</p>
+
+</section>
+<section id="summary">
+<h2>Summary</h2>
+<div class="toolbar"><button type="button" id="expand">Expand all</button><button type="button" id="collapse">Collapse all</button><span>Click a row to jump to its evidence.</span></div>
+<div class="scroll">
+<table class="summary">
+<thead><tr><th>#</th><th>Requirement</th><th>Scenario</th><th>Result</th><th>Time</th></tr></thead>
+<tbody>
+<tr class="group"><th colspan="5">Option 1 · API rate limiter</th></tr>
+<tr class="check" data-status="pass"><td class="id"><a href="#check-1-0">1.0</a></td><td>Service is up, Redis-backed</td><td class="scenario">health, readiness, contract and docs endpoints</td><td><span class="pill pass">PASS</span></td><td class="num">0.3s</td></tr>
+<tr class="check" data-status="pass"><td class="id"><a href="#check-1-1">1.1</a></td><td>Track requests per IP; 429 when the limit is exceeded; IETF RateLimit headers</td><td class="scenario">default rule shrunk to 5/60s for this IP via an override; walk the budget down to zero, then one more request</td><td><span class="pill pass">PASS</span></td><td class="num">0.4s</td></tr>
+<tr class="check" data-status="pass"><td class="id"><a href="#check-1-2">1.2</a></td><td>Per-endpoint configuration</td><td class="scenario">/api/search has its own rule and counter; shrunk to 3/60s for this IP and exhausted while /api/public stays available</td><td><span class="pill pass">PASS</span></td><td class="num">0.3s</td></tr>
+<tr class="check" data-status="pass"><td class="id"><a href="#check-1-3">1.3</a></td><td>Per-endpoint configuration: login brute-force rule</td><td class="scenario">/api/login rule shrunk to 2/60s for this IP; failed attempts count; the attempt after the budget is 429</td><td><span class="pill pass">PASS</span></td><td class="num">0.2s</td></tr>
+<tr class="check" data-status="pass"><td class="id"><a href="#check-1-4">1.4</a></td><td>Different limits for authenticated (200/h) vs unauthenticated (100/h) users</td><td class="scenario">log in; compare RateLimit-Limit for the same IP with and without a token; then shrink alice to 3/60s (sliding log, so the demonstration starts from a fresh counter) and show her budget is separate from the anonymous one</td><td><span class="pill pass">PASS</span></td><td class="num">0.4s</td></tr>
+<tr class="check" data-status="pass"><td class="id"><a href="#check-1-5">1.5</a></td><td>Bonus: sliding log algorithm</td><td class="scenario">search rule set to sliding-log 2/20s for this IP; one slot frees exactly when the oldest request ages out, not at a window boundary</td><td><span class="pill pass">PASS</span></td><td class="num">42.5s</td></tr>
+<tr class="check" data-status="pass"><td class="id"><a href="#check-1-6">1.6</a></td><td>Bonus: temporary overrides</td><td class="scenario">create → listed → effective in headers → expires by itself; a blocking override is applied and then deleted explicitly</td><td><span class="pill pass">PASS</span></td><td class="num">10.1s</td></tr>
+<tr class="check" data-status="pass"><td class="id"><a href="#check-1-7">1.7</a></td><td>Admin interface is protected</td><td class="scenario">missing and wrong admin token</td><td><span class="pill pass">PASS</span></td><td class="num">0.1s</td></tr>
+<tr class="check" data-status="pass"><td class="id"><a href="#check-1-8">1.8</a></td><td>Real client IP behind the platform proxy</td><td class="scenario">every ip-scoped override above matched this machine&#39;s egress IP, so anonymous callers are keyed on the true client address (Fly-Client-IP), not the proxy</td><td><span class="pill pass">PASS</span></td><td class="num">0.0s</td></tr>
+<tr class="group"><th colspan="5">Option 2 · WebSocket chat server</th></tr>
+<tr class="check" data-status="pass"><td class="id"><a href="#check-2-0">2.0</a></td><td>Service is up (HTTP + both contracts)</td><td class="scenario">health, readiness, OpenAPI, AsyncAPI, docs</td><td><span class="pill pass">PASS</span></td><td class="num">0.3s</td></tr>
+<tr class="check" data-status="pass"><td class="id"><a href="#check-2-1">2.1</a></td><td>Basic authentication and authorization</td><td class="scenario">upgrade without token is refused; JWT login works; private rooms refuse non-members until the owner adds them</td><td><span class="pill pass">PASS</span></td><td class="num">0.6s</td></tr>
+<tr class="check" data-status="pass"><td class="id"><a href="#check-2-2">2.2</a></td><td>Real-time messaging, rooms, broadcast to all connected clients (+ bonus @mentions)</td><td class="scenario">alice creates a public room; both join over real sockets; alice sends &quot;@bob&quot;; both receive the message and bob receives a mention frame</td><td><span class="pill pass">PASS</span></td><td class="num">0.4s</td></tr>
+<tr class="check" data-status="pass"><td class="id"><a href="#check-2-3">2.3</a></td><td>Bonus: message editing and deletion</td><td class="scenario">alice edits then deletes; bob receives message.edited and message.deleted; history shows the tombstone</td><td><span class="pill pass">PASS</span></td><td class="num">0.1s</td></tr>
+<tr class="check" data-status="pass"><td class="id"><a href="#check-2-4">2.4</a></td><td>Fetch previous messages (persisted history, keyset pagination)</td><td class="scenario">send 3 messages, page through them newest-first with the cursor</td><td><span class="pill pass">PASS</span></td><td class="num">0.2s</td></tr>
+<tr class="check" data-status="pass"><td class="id"><a href="#check-2-5">2.5</a></td><td>Bonus: rate limiting for message sending</td><td class="scenario">alice sends quickly until blocked; the error frame carries rate_limited and retryAfterMs; the blocked message is not broadcast</td><td><span class="pill pass">PASS</span></td><td class="num">1.3s</td></tr>
+<tr class="check" data-status="pass"><td class="id"><a href="#check-2-6">2.6</a></td><td>Bonus: administrative interface</td><td class="scenario">admin lists users and rooms; a regular user is forbidden; banning bob closes his socket with 4403; unban; kick</td><td><span class="pill pass">PASS</span></td><td class="num">5.5s</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="evidence">
+<h2>Evidence</h2>
+<details class="check" id="check-1-0" data-status="pass">
+<summary><span class="pill pass">PASS</span> <span class="id">1.0</span> <span class="title">Service is up, Redis-backed</span><span class="meta">started 2026-10-13T22:21:52.555Z · 0.3s</span></summary>
+<p class="scenario"><strong>Scenario.</strong> health, readiness, contract and docs endpoints</p>
+
+<pre class="evidence">GET /health → <span class="st st-2xx">200</span>  body={&quot;status&quot;:&quot;ok&quot;,&quot;checks&quot;:{&quot;redis&quot;:&quot;up&quot;}}
+GET /ready → <span class="st st-2xx">200</span>  body={&quot;status&quot;:&quot;ready&quot;,&quot;checks&quot;:{&quot;redis&quot;:&quot;up&quot;},&quot;failurePolicy&quot;:&quot;open&quot;}
+GET /openapi.json → <span class="st st-2xx">200</span>
+GET /docs → <span class="st st-2xx">200</span></pre>
+</details>
+<details class="check" id="check-1-1" data-status="pass">
+<summary><span class="pill pass">PASS</span> <span class="id">1.1</span> <span class="title">Track requests per IP; 429 when the limit is exceeded; IETF RateLimit headers</span><span class="meta">started 2026-10-13T22:21:52.867Z · 0.4s</span></summary>
+<p class="scenario"><strong>Scenario.</strong> default rule shrunk to 5/60s for this IP via an override; walk the budget down to zero, then one more request</p>
+
+<pre class="evidence">POST /admin/overrides → <span class="st st-2xx">201</span>  payload={&quot;reason&quot;:&quot;live verification 1.1&quot;,&quot;criteria&quot;:{&quot;ips&quot;:[&quot;122.57.33.23&quot;],&quot;ruleIds&quot;:[&quot;default&quot;]},&quot;effect&quot;:{&quot;limit&quot;:5,&quot;windowMs&quot;:60000},&quot;ttlSeconds&quot;:300}
+GET /api/public (anonymous) → <span class="st st-2xx">200</span>  ratelimit-limit=5 ratelimit-remaining=4 ratelimit-reset=60 ratelimit-policy=5;w=60
+GET /api/public (anonymous) → <span class="st st-2xx">200</span>  ratelimit-limit=5 ratelimit-remaining=3 ratelimit-reset=60 ratelimit-policy=5;w=60
+GET /api/public (anonymous) → <span class="st st-2xx">200</span>  ratelimit-limit=5 ratelimit-remaining=2 ratelimit-reset=60 ratelimit-policy=5;w=60
+GET /api/public (anonymous) → <span class="st st-2xx">200</span>  ratelimit-limit=5 ratelimit-remaining=1 ratelimit-reset=60 ratelimit-policy=5;w=60
+GET /api/public (anonymous) → <span class="st st-2xx">200</span>  ratelimit-limit=5 ratelimit-remaining=0 ratelimit-reset=60 ratelimit-policy=5;w=60
+GET /api/public (anonymous) → <span class="st st-4xx">429</span>  ratelimit-limit=5 ratelimit-remaining=0 ratelimit-reset=60 ratelimit-policy=5;w=60 retry-after=60 body={&quot;error&quot;:&quot;Too Many Requests&quot;,&quot;message&quot;:&quot;Too many requests, please try again later.&quot;,&quot;limit&quot;:5,&quot;remaining&quot;:0,&quot;retryAfterSeconds&quot;:60,&quot;override&quot;:&quot;6748641e-a711-40bc-9b20-e31d3f2de2d6&quot;}
+allowed 5 request(s) before the 429 (budget as reported by the server), Retry-After=60s
+DELETE /admin/overrides/6748641e-a711-40bc-9b20-e31d3f2de2d6 → <span class="st st-2xx">204</span>
+GET /api/public → <span class="st st-2xx">200</span>  ratelimit-limit=100 ratelimit-remaining=93 ratelimit-reset=60 ratelimit-policy=100;w=3600  (override removed → default limit again)</pre>
+</details>
+<details class="check" id="check-1-2" data-status="pass">
+<summary><span class="pill pass">PASS</span> <span class="id">1.2</span> <span class="title">Per-endpoint configuration</span><span class="meta">started 2026-10-13T22:21:53.309Z · 0.3s</span></summary>
+<p class="scenario"><strong>Scenario.</strong> /api/search has its own rule and counter; shrunk to 3/60s for this IP and exhausted while /api/public stays available</p>
+
+<pre class="evidence">POST /admin/overrides → <span class="st st-2xx">201</span>  payload={&quot;reason&quot;:&quot;live verification 1.2&quot;,&quot;criteria&quot;:{&quot;ips&quot;:[&quot;122.57.33.23&quot;],&quot;ruleIds&quot;:[&quot;search&quot;]},&quot;effect&quot;:{&quot;limit&quot;:3,&quot;windowMs&quot;:60000},&quot;ttlSeconds&quot;:300}
+GET /api/search?q=live → <span class="st st-2xx">200</span>  ratelimit-limit=3 ratelimit-remaining=2 ratelimit-reset=60 ratelimit-policy=3;w=60
+GET /api/search?q=live → <span class="st st-2xx">200</span>  ratelimit-limit=3 ratelimit-remaining=1 ratelimit-reset=60 ratelimit-policy=3;w=60
+GET /api/search?q=live → <span class="st st-2xx">200</span>  ratelimit-limit=3 ratelimit-remaining=0 ratelimit-reset=60 ratelimit-policy=3;w=60
+GET /api/search?q=live → <span class="st st-4xx">429</span>  ratelimit-limit=3 ratelimit-remaining=0 ratelimit-reset=60 ratelimit-policy=3;w=60 retry-after=60 body={&quot;error&quot;:&quot;Too Many Requests&quot;,&quot;message&quot;:&quot;Too many requests, please try again later.&quot;,&quot;limit&quot;:3,&quot;remaining&quot;:0,&quot;retryAfterSeconds&quot;:60,&quot;override&quot;:&quot;a6535de6-45ff-4c7b-a0e5-1bb26d84c902&quot;}
+GET /api/public → <span class="st st-2xx">200</span>  ratelimit-limit=100 ratelimit-remaining=92 ratelimit-reset=60 ratelimit-policy=100;w=3600  (different rule, different counter)
+DELETE /admin/overrides/a6535de6-45ff-4c7b-a0e5-1bb26d84c902 → <span class="st st-2xx">204</span></pre>
+</details>
+<details class="check" id="check-1-3" data-status="pass">
+<summary><span class="pill pass">PASS</span> <span class="id">1.3</span> <span class="title">Per-endpoint configuration: login brute-force rule</span><span class="meta">started 2026-10-13T22:21:53.593Z · 0.2s</span></summary>
+<p class="scenario"><strong>Scenario.</strong> /api/login rule shrunk to 2/60s for this IP; failed attempts count; the attempt after the budget is 429</p>
+
+<pre class="evidence">POST /admin/overrides → <span class="st st-2xx">201</span>  payload={&quot;reason&quot;:&quot;live verification 1.3&quot;,&quot;criteria&quot;:{&quot;ips&quot;:[&quot;122.57.33.23&quot;],&quot;ruleIds&quot;:[&quot;login&quot;]},&quot;effect&quot;:{&quot;limit&quot;:2,&quot;windowMs&quot;:60000},&quot;ttlSeconds&quot;:300}
+POST /api/login (wrong password) → <span class="st st-4xx">401</span>  ratelimit-limit=2 ratelimit-remaining=1 ratelimit-reset=60 ratelimit-policy=2;w=60 body={&quot;error&quot;:&quot;Unauthorized&quot;,&quot;message&quot;:&quot;Invalid username or password&quot;}
+POST /api/login (wrong password) → <span class="st st-4xx">401</span>  ratelimit-limit=2 ratelimit-remaining=0 ratelimit-reset=60 ratelimit-policy=2;w=60 body={&quot;error&quot;:&quot;Unauthorized&quot;,&quot;message&quot;:&quot;Invalid username or password&quot;}
+POST /api/login (wrong password) → <span class="st st-4xx">429</span>  ratelimit-limit=2 ratelimit-remaining=0 ratelimit-reset=60 ratelimit-policy=2;w=60 retry-after=60 body={&quot;error&quot;:&quot;Too Many Requests&quot;,&quot;message&quot;:&quot;Too many requests, please try again later.&quot;,&quot;limit&quot;:2,&quot;remaining&quot;:0,&quot;retryAfterSeconds&quot;:60,&quot;override&quot;:&quot;51bc5db3-a6f2-4f45-8dd0-6be7ffd04f03&quot;}
+DELETE /admin/overrides/51bc5db3-a6f2-4f45-8dd0-6be7ffd04f03 → <span class="st st-2xx">204</span></pre>
+</details>
+<details class="check" id="check-1-4" data-status="pass">
+<summary><span class="pill pass">PASS</span> <span class="id">1.4</span> <span class="title">Different limits for authenticated (200/h) vs unauthenticated (100/h) users</span><span class="meta">started 2026-10-13T22:21:53.792Z · 0.4s</span></summary>
+<p class="scenario"><strong>Scenario.</strong> log in; compare RateLimit-Limit for the same IP with and without a token; then shrink alice to 3/60s (sliding log, so the demonstration starts from a fresh counter) and show her budget is separate from the anonymous one</p>
+
+<pre class="evidence">POST /api/login (alice) → <span class="st st-2xx">200</span>  ratelimit-limit=5 ratelimit-remaining=1 ratelimit-reset=60 ratelimit-policy=5;w=900
+GET /api/public (anonymous) → <span class="st st-2xx">200</span>  ratelimit-limit=100 ratelimit-remaining=91 ratelimit-reset=60 ratelimit-policy=100;w=3600
+GET /api/public (Bearer &lt;redacted&gt;) → <span class="st st-2xx">200</span>  ratelimit-limit=200 ratelimit-remaining=198 ratelimit-reset=3529 ratelimit-policy=200;w=3600
+POST /admin/overrides → <span class="st st-2xx">201</span>  payload={&quot;reason&quot;:&quot;live verification 1.4&quot;,&quot;criteria&quot;:{&quot;userIds&quot;:[&quot;alice&quot;],&quot;ruleIds&quot;:[&quot;default&quot;]},&quot;effect&quot;:{&quot;limit&quot;:3,&quot;windowMs&quot;:60000,&quot;algorithm&quot;:&quot;sliding-log&quot;},&quot;ttlSeconds&quot;:300}
+GET /api/public (Bearer &lt;redacted&gt;) → <span class="st st-2xx">200</span>  ratelimit-limit=3 ratelimit-remaining=2 ratelimit-reset=60 ratelimit-policy=3;w=60
+GET /api/public (Bearer &lt;redacted&gt;) → <span class="st st-2xx">200</span>  ratelimit-limit=3 ratelimit-remaining=1 ratelimit-reset=60 ratelimit-policy=3;w=60
+GET /api/public (Bearer &lt;redacted&gt;) → <span class="st st-2xx">200</span>  ratelimit-limit=3 ratelimit-remaining=0 ratelimit-reset=60 ratelimit-policy=3;w=60
+GET /api/public (Bearer &lt;redacted&gt;) → <span class="st st-4xx">429</span>  ratelimit-limit=3 ratelimit-remaining=0 ratelimit-reset=60 ratelimit-policy=3;w=60 retry-after=60 body={&quot;error&quot;:&quot;Too Many Requests&quot;,&quot;message&quot;:&quot;Too many requests, please try again later.&quot;,&quot;limit&quot;:3,&quot;remaining&quot;:0,&quot;retryAfterSeconds&quot;:60,&quot;override&quot;:&quot;efd466b2-681c-4778-a425-9bb38a75bbde&quot;}
+GET /api/public (anonymous, same IP) → <span class="st st-2xx">200</span>  ratelimit-limit=100 ratelimit-remaining=90 ratelimit-reset=59 ratelimit-policy=100;w=3600  (keyed by ip:, not by user:)
+DELETE /admin/overrides/efd466b2-681c-4778-a425-9bb38a75bbde → <span class="st st-2xx">204</span></pre>
+</details>
+<details class="check" id="check-1-5" data-status="pass">
+<summary><span class="pill pass">PASS</span> <span class="id">1.5</span> <span class="title">Bonus: sliding log algorithm</span><span class="meta">started 2026-10-13T22:21:54.187Z · 42.5s</span></summary>
+<p class="scenario"><strong>Scenario.</strong> search rule set to sliding-log 2/20s for this IP; one slot frees exactly when the oldest request ages out, not at a window boundary</p>
+
+<pre class="evidence">waiting 21s so the search requests from 1.2 leave the 20s window (the search rule is sliding-log by default, same key)
+POST /admin/overrides → <span class="st st-2xx">201</span>  payload={&quot;reason&quot;:&quot;live verification 1.5&quot;,&quot;criteria&quot;:{&quot;ips&quot;:[&quot;122.57.33.23&quot;],&quot;ruleIds&quot;:[&quot;search&quot;]},&quot;effect&quot;:{&quot;limit&quot;:2,&quot;windowMs&quot;:20000,&quot;algorithm&quot;:&quot;sliding-log&quot;},&quot;ttlSeconds&quot;:300}
+t+0.0s GET /api/search → <span class="st st-2xx">200</span>  ratelimit-limit=2 ratelimit-remaining=1 ratelimit-reset=20 ratelimit-policy=2;w=20
+t+4.1s GET /api/search → <span class="st st-2xx">200</span>  ratelimit-limit=2 ratelimit-remaining=0 ratelimit-reset=16 ratelimit-policy=2;w=20
+t+5.2s GET /api/search → <span class="st st-4xx">429</span>  ratelimit-limit=2 ratelimit-remaining=0 ratelimit-reset=15 ratelimit-policy=2;w=20 retry-after=15 body={&quot;error&quot;:&quot;Too Many Requests&quot;,&quot;message&quot;:&quot;Too many requests, please try again later.&quot;,&quot;limit&quot;:2,&quot;remaining&quot;:0,&quot;retryAfterSeconds&quot;:15,&quot;override&quot;:&quot;9a8f742c-e41f-4e50-b2de-c0ebcd7ff6fc&quot;}
+t+21.3s GET /api/search → <span class="st st-2xx">200</span>  ratelimit-limit=2 ratelimit-remaining=0 ratelimit-reset=3 ratelimit-policy=2;w=20  (first slot freed)
+t+21.3s GET /api/search → <span class="st st-4xx">429</span>  ratelimit-limit=2 ratelimit-remaining=0 ratelimit-reset=3 ratelimit-policy=2;w=20 retry-after=3 body={&quot;error&quot;:&quot;Too Many Requests&quot;,&quot;message&quot;:&quot;Too many requests, please try again later.&quot;,&quot;limit&quot;:2,&quot;remaining&quot;:0,&quot;retryAfterSeconds&quot;:3,&quot;override&quot;:&quot;9a8f742c-e41f-4e50-b2de-c0ebcd7ff6fc&quot;}  (second request still inside the window → sliding, not reset)
+DELETE /admin/overrides/9a8f742c-e41f-4e50-b2de-c0ebcd7ff6fc → <span class="st st-2xx">204</span></pre>
+</details>
+<details class="check" id="check-1-6" data-status="pass">
+<summary><span class="pill pass">PASS</span> <span class="id">1.6</span> <span class="title">Bonus: temporary overrides</span><span class="meta">started 2026-10-13T22:22:36.695Z · 10.1s</span></summary>
+<p class="scenario"><strong>Scenario.</strong> create → listed → effective in headers → expires by itself; a blocking override is applied and then deleted explicitly</p>
+
+<pre class="evidence">POST /admin/overrides → <span class="st st-2xx">201</span>  payload={&quot;reason&quot;:&quot;live verification 1.6 (expires)&quot;,&quot;criteria&quot;:{&quot;ips&quot;:[&quot;122.57.33.23&quot;],&quot;ruleIds&quot;:[&quot;default&quot;]},&quot;effect&quot;:{&quot;limit&quot;:7,&quot;windowMs&quot;:60000},&quot;ttlSeconds&quot;:8}
+GET /admin/overrides → <span class="st st-2xx">200</span>  ids=[&quot;a33d221a-c67c-4fe9-a690-ca894ca3ccb1&quot;]
+GET /api/public (override active) → <span class="st st-4xx">429</span>  ratelimit-limit=7 ratelimit-remaining=0 ratelimit-reset=17 ratelimit-policy=7;w=60 retry-after=17 body={&quot;error&quot;:&quot;Too Many Requests&quot;,&quot;message&quot;:&quot;Too many requests, please try again later.&quot;,&quot;limit&quot;:7,&quot;remaining&quot;:0,&quot;retryAfterSeconds&quot;:17,&quot;override&quot;:&quot;a33d221a-c67c-4fe9-a690-ca894ca3ccb1&quot;}
+GET /api/public (after ttl) → <span class="st st-2xx">200</span>  ratelimit-limit=100 ratelimit-remaining=88 ratelimit-reset=7 ratelimit-policy=100;w=3600  (expired without any call)
+POST /admin/overrides → <span class="st st-2xx">201</span>  payload={&quot;reason&quot;:&quot;live verification 1.6 (block)&quot;,&quot;criteria&quot;:{&quot;ips&quot;:[&quot;122.57.33.23&quot;]},&quot;effect&quot;:{&quot;limit&quot;:0},&quot;ttlSeconds&quot;:120}
+GET /api/public (blocked by override) → <span class="st st-4xx">429</span>  ratelimit-limit=0 ratelimit-remaining=0 ratelimit-reset=7 ratelimit-policy=0;w=3600 retry-after=7 body={&quot;error&quot;:&quot;Too Many Requests&quot;,&quot;message&quot;:&quot;Too many requests, please try again later.&quot;,&quot;limit&quot;:0,&quot;remaining&quot;:0,&quot;retryAfterSeconds&quot;:7,&quot;override&quot;:&quot;fca46f08-2ee9-4f6d-a6f3-07d66a859c87&quot;}
+DELETE /admin/overrides/fca46f08-2ee9-4f6d-a6f3-07d66a859c87 → <span class="st st-2xx">204</span>
+GET /api/public (after delete) → <span class="st st-2xx">200</span>  ratelimit-limit=100 ratelimit-remaining=86 ratelimit-reset=7 ratelimit-policy=100;w=3600</pre>
+</details>
+<details class="check" id="check-1-7" data-status="pass">
+<summary><span class="pill pass">PASS</span> <span class="id">1.7</span> <span class="title">Admin interface is protected</span><span class="meta">started 2026-10-13T22:22:46.767Z · 0.1s</span></summary>
+<p class="scenario"><strong>Scenario.</strong> missing and wrong admin token</p>
+
+<pre class="evidence">GET /admin/overrides (no token) → <span class="st st-4xx">401</span> body={&quot;error&quot;:&quot;Unauthorized&quot;,&quot;message&quot;:&quot;&#39;X-Admin-Token&#39; header required&quot;,&quot;details&quot;:[{&quot;path&quot;:&quot;/admin/overrides&quot;,&quot;message&quot;:&quot;&#39;X-Admin-Token&#39; header required&quot;}]}
+GET /admin/overrides (wrong token) → <span class="st st-4xx">403</span> body={&quot;error&quot;:&quot;Forbidden&quot;,&quot;message&quot;:&quot;Invalid admin token&quot;,&quot;details&quot;:[{&quot;path&quot;:&quot;/admin/overrides&quot;,&quot;message&quot;:&quot;Invalid admin token&quot;}]}</pre>
+</details>
+<details class="check" id="check-1-8" data-status="pass">
+<summary><span class="pill pass">PASS</span> <span class="id">1.8</span> <span class="title">Real client IP behind the platform proxy</span><span class="meta">started 2026-10-13T22:22:46.835Z · 0.0s</span></summary>
+<p class="scenario"><strong>Scenario.</strong> every ip-scoped override above matched this machine&#39;s egress IP, so anonymous callers are keyed on the true client address (Fly-Client-IP), not the proxy</p>
+
+<pre class="evidence">egress IP(s) used for the ip-scoped overrides: 122.57.33.23
+GET /api/public → <span class="st st-2xx">200</span>  ratelimit-limit=100 ratelimit-remaining=85 ratelimit-reset=7 ratelimit-policy=100;w=3600  fly-request-id=01M4VNRVNPBH0SYE3R1E94Z1MK-syd</pre>
+</details>
+<details class="check" id="check-2-0" data-status="pass">
+<summary><span class="pill pass">PASS</span> <span class="id">2.0</span> <span class="title">Service is up (HTTP + both contracts)</span><span class="meta">started 2026-10-13T22:22:46.871Z · 0.3s</span></summary>
+<p class="scenario"><strong>Scenario.</strong> health, readiness, OpenAPI, AsyncAPI, docs</p>
+
+<pre class="evidence">GET /health → <span class="st st-2xx">200</span>  body={&quot;status&quot;:&quot;ok&quot;,&quot;checks&quot;:{&quot;redis&quot;:&quot;up&quot;,&quot;database&quot;:&quot;up&quot;}}
+GET /ready → <span class="st st-2xx">200</span>
+GET /openapi.json → <span class="st st-2xx">200</span>
+GET /asyncapi.yaml → <span class="st st-2xx">200</span>
+GET /docs → <span class="st st-2xx">200</span></pre>
+</details>
+<details class="check" id="check-2-1" data-status="pass">
+<summary><span class="pill pass">PASS</span> <span class="id">2.1</span> <span class="title">Basic authentication and authorization</span><span class="meta">started 2026-10-13T22:22:47.216Z · 0.6s</span></summary>
+<p class="scenario"><strong>Scenario.</strong> upgrade without token is refused; JWT login works; private rooms refuse non-members until the owner adds them</p>
+
+<pre class="evidence">WS upgrade without token → HTTP 401
+POST /auth/login (alice) → <span class="st st-2xx">200</span>  ratelimit-limit=5 ratelimit-remaining=3 ratelimit-reset=840 ratelimit-policy=5;w=900
+POST /auth/login (bob) → <span class="st st-2xx">200</span>  ratelimit-limit=5 ratelimit-remaining=2 ratelimit-reset=840 ratelimit-policy=5;w=900
+POST /rooms (private, by alice) → <span class="st st-2xx">201</span>
+bob join private room → {&quot;type&quot;:&quot;error&quot;,&quot;id&quot;:&quot;p1&quot;,&quot;payload&quot;:{&quot;code&quot;:&quot;forbidden&quot;,&quot;message&quot;:&quot;This room is private&quot;}}
+POST /rooms/01M4VNRWAY77A626KPJNTD2Z48/members (owner adds bob) → <span class="st st-2xx">204</span>
+bob join private room after being added → {&quot;type&quot;:&quot;ack&quot;,&quot;id&quot;:&quot;p2&quot;,&quot;payload&quot;:{}}</pre>
+</details>
+<details class="check" id="check-2-2" data-status="pass">
+<summary><span class="pill pass">PASS</span> <span class="id">2.2</span> <span class="title">Real-time messaging, rooms, broadcast to all connected clients (+ bonus @mentions)</span><span class="meta">started 2026-10-13T22:22:47.815Z · 0.4s</span></summary>
+<p class="scenario"><strong>Scenario.</strong> alice creates a public room; both join over real sockets; alice sends &quot;@bob&quot;; both receive the message and bob receives a mention frame</p>
+
+<pre class="evidence">POST /rooms → <span class="st st-2xx">201</span>
+alice joined → room.snapshot members=[&quot;alice&quot;]
+bob joined → room.snapshot members=[&quot;alice&quot;,&quot;bob&quot;]
+alice ack → {&quot;type&quot;:&quot;ack&quot;,&quot;id&quot;:&quot;s1&quot;,&quot;payload&quot;:{&quot;messageId&quot;:&quot;01M4VNRWYCPKYWZKTA5T36JPMM&quot;}}
+bob received message → {&quot;id&quot;:&quot;01M4VNRWYCPKYWZKTA5T36JPMM&quot;,&quot;roomId&quot;:&quot;01M4VNRWMC9P542VTAKMQWHDES&quot;,&quot;user&quot;:{&quot;id&quot;:&quot;01M4J8D12PF997F7FCBFN3JKQ4&quot;,&quot;username&quot;:&quot;alice&quot;,&quot;role&quot;:&quot;user&quot;},&quot;body&quot;:&quot;hello from the live verification @bob&quot;,&quot;mentions&quot;:[{&quot;id&quot;:&quot;01M4J8D143XS6A5QARZX55R2SE&quot;,&quot;username&quot;:&quot;bob&quot;,&quot;role&quot;:&quot;user&quot;}],&quot;createdAt&quot;:&quot;2026-10-13T22:22:48.268Z&quot;,&quot;editedAt&quot;:null,&quot;deletedAt&quot;:null}
+bob received mention → id=01M4VNRWYCPKYWZKTA5T36JPMM mentions=[&quot;bob&quot;]</pre>
+</details>
+<details class="check" id="check-2-3" data-status="pass">
+<summary><span class="pill pass">PASS</span> <span class="id">2.3</span> <span class="title">Bonus: message editing and deletion</span><span class="meta">started 2026-10-13T22:22:48.170Z · 0.1s</span></summary>
+<p class="scenario"><strong>Scenario.</strong> alice edits then deletes; bob receives message.edited and message.deleted; history shows the tombstone</p>
+
+<pre class="evidence">bob received → {&quot;id&quot;:&quot;01M4VNRWYCPKYWZKTA5T36JPMM&quot;,&quot;roomId&quot;:&quot;01M4VNRWMC9P542VTAKMQWHDES&quot;,&quot;body&quot;:&quot;edited live&quot;,&quot;editedAt&quot;:&quot;2026-10-13T22:22:48.307Z&quot;}
+bob received → {&quot;id&quot;:&quot;01M4VNRWYCPKYWZKTA5T36JPMM&quot;,&quot;roomId&quot;:&quot;01M4VNRWMC9P542VTAKMQWHDES&quot;}
+GET /rooms/01M4VNRWMC9P542VTAKMQWHDES/messages?limit=5 → <span class="st st-2xx">200</span>  first={&quot;id&quot;:&quot;01M4VNRWYCPKYWZKTA5T36JPMM&quot;,&quot;roomId&quot;:&quot;01M4VNRWMC9P542VTAKMQWHDES&quot;,&quot;user&quot;:{&quot;id&quot;:&quot;01M4J8D12PF997F7FCBFN3JKQ4&quot;,&quot;username&quot;:&quot;alice&quot;,&quot;role&quot;:&quot;user&quot;},&quot;body&quot;:&quot;&quot;,&quot;mentions&quot;:[{&quot;id&quot;:&quot;01M4J8D143XS6A5QARZX55R2SE&quot;,&quot;username&quot;:&quot;bob&quot;,&quot;role&quot;:&quot;user&quot;}],&quot;createdAt&quot;:&quot;2026-10-13T22:22:48.268Z&quot;,&quot;editedAt&quot;:&quot;2026-10-13T22:22:48.307Z&quot;,&quot;deletedAt&quot;:&quot;2026-10-13T22:22:48.342Z&quot;}</pre>
+</details>
+<details class="check" id="check-2-4" data-status="pass">
+<summary><span class="pill pass">PASS</span> <span class="id">2.4</span> <span class="title">Fetch previous messages (persisted history, keyset pagination)</span><span class="meta">started 2026-10-13T22:22:48.284Z · 0.2s</span></summary>
+<p class="scenario"><strong>Scenario.</strong> send 3 messages, page through them newest-first with the cursor</p>
+
+<pre class="evidence">GET /rooms/{id}/messages?limit=2 → <span class="st st-2xx">200</span>  bodies=[&quot;history 3&quot;,&quot;history 2&quot;] nextCursor=01M4VNRX43CJNPC70W91J66H5R
+GET /rooms/{id}/messages?limit=2&amp;before=… → <span class="st st-2xx">200</span>  bodies=[&quot;history 1&quot;,&quot;&quot;]</pre>
+</details>
+<details class="check" id="check-2-5" data-status="pass">
+<summary><span class="pill pass">PASS</span> <span class="id">2.5</span> <span class="title">Bonus: rate limiting for message sending</span><span class="meta">started 2026-10-13T22:22:48.459Z · 1.3s</span></summary>
+<p class="scenario"><strong>Scenario.</strong> alice sends quickly until blocked; the error frame carries rate_limited and retryAfterMs; the blocked message is not broadcast</p>
+
+<pre class="evidence">accepted before block: 6; blocking reply: {&quot;type&quot;:&quot;error&quot;,&quot;id&quot;:&quot;r6&quot;,&quot;payload&quot;:{&quot;code&quot;:&quot;rate_limited&quot;,&quot;message&quot;:&quot;Too many messages, slow down&quot;,&quot;retryAfterMs&quot;:9458}}
+bob received 6 burst messages (equals accepted count: true)</pre>
+</details>
+<details class="check" id="check-2-6" data-status="pass">
+<summary><span class="pill pass">PASS</span> <span class="id">2.6</span> <span class="title">Bonus: administrative interface</span><span class="meta">started 2026-10-13T22:22:49.713Z · 5.5s</span></summary>
+<p class="scenario"><strong>Scenario.</strong> admin lists users and rooms; a regular user is forbidden; banning bob closes his socket with 4403; unban; kick</p>
+
+<pre class="evidence">POST /auth/login (admin) → <span class="st st-2xx">200</span>  ratelimit-limit=5 ratelimit-remaining=1 ratelimit-reset=838 ratelimit-policy=5;w=900
+GET /admin/users (as alice) → <span class="st st-4xx">403</span> body={&quot;error&quot;:&quot;Forbidden&quot;,&quot;message&quot;:&quot;Admin role required&quot;}
+GET /admin/users → <span class="st st-2xx">200</span>  users=[&quot;admin:admin&quot;,&quot;alice:user&quot;,&quot;bob:user&quot;]
+GET /admin/rooms → <span class="st st-2xx">200</span>  test room counts={&quot;room&quot;:{&quot;id&quot;:&quot;01M4VNRWMC9P542VTAKMQWHDES&quot;,&quot;name&quot;:&quot;live-room-1791930167815&quot;,&quot;visibility&quot;:&quot;public&quot;,&quot;ownerId&quot;:&quot;01M4J8D12PF997F7FCBFN3JKQ4&quot;},&quot;memberCount&quot;:2,&quot;messageCount&quot;:10}
+PUT /admin/users/01M4J8D143XS6A5QARZX55R2SE/ban → <span class="st st-2xx">204</span>
+bob&#39;s socket closed → {&quot;code&quot;:4403,&quot;reason&quot;:&quot;banned&quot;}
+DELETE /admin/users/01M4J8D143XS6A5QARZX55R2SE/ban → <span class="st st-2xx">204</span>
+POST /admin/rooms/01M4VNRWMC9P542VTAKMQWHDES/kick → <span class="st st-2xx">204</span></pre>
+</details>
+</section>
+<section class="prose">
+<h2>Not verified live, and why</h2>
+
+<ul>
+<li><strong>Fail-open / fail-closed when Redis is unreachable.</strong> Would require taking the shared Redis down. Covered by the engine, middleware and API suites with an injected failing client.</li>
+<li><strong>Atomicity across concurrent instances.</strong> The demo runs one Machine. Covered by the store contract suite: 50 parallel requests, exactly 10 admitted, on real Redis.</li>
+<li><strong>Fixed-window boundary burst.</strong> The default rule&#39;s 60-minute window is impractical to straddle live; the memory and Redis stores share one contract suite that covers it.</li>
+</ul>
+</section>
+</main>
+<footer>Built to the repository's report standard (docs/REPORTING.md): one self-contained file, no external resources, every producer string escaped.</footer>
+<script>
+(function () {
+  var all = document.querySelectorAll('details.check');
+  function setAll(state) { all.forEach(function (d) { d.open = state; }); }
+  function reveal(hash) {
+    if (!hash || hash.length < 2) return;
+    var target = document.getElementById(hash.slice(1));
+    if (target && target.tagName === 'DETAILS') target.open = true;
+  }
+  var expand = document.getElementById('expand');
+  var collapse = document.getElementById('collapse');
+  var failOnly = document.getElementById('fail-only');
+  if (expand) expand.addEventListener('click', function () { setAll(true); });
+  if (collapse) collapse.addEventListener('click', function () { setAll(false); });
+  if (failOnly) failOnly.addEventListener('change', function () { document.body.classList.toggle('fail-only', failOnly.checked); });
+  window.addEventListener('beforeprint', function () { setAll(true); });
+  window.addEventListener('hashchange', function () { reveal(location.hash); });
+  reveal(location.hash);
+})();
+</script>
+</body>
+</html>
