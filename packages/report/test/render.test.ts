@@ -80,3 +80,23 @@ describe('prose, facts and evidence styling', () => {
     expect(renderHtml(r)).toContain('body=`raw`');
   });
 });
+
+describe('chrome', () => {
+  it('ships its stylesheet and script inline, offers expand/collapse, and a failures-only filter only when something failed', () => {
+    const html = renderHtml(sample());
+    expect(html).toMatch(/<style>[\s\S]*prefers-color-scheme: dark[\s\S]*<\/style>/);
+    expect(html).toMatch(/<script>[\s\S]*beforeprint[\s\S]*<\/script>/);
+    expect(html).toContain('<button type="button" id="expand">Expand all</button>');
+    expect(html).toContain('<input type="checkbox" id="fail-only">');
+
+    const clean = sample();
+    clean.checks = clean.checks.filter((c) => c.status === 'pass');
+    expect(renderHtml(clean)).not.toContain('id="fail-only"');
+  });
+
+  it('lets the generator line carry inline code', () => {
+    const r = sample();
+    r.generator = '`scripts/x.mts` at commit `abc1234`';
+    expect(renderHtml(r)).toContain('<code>scripts/x.mts</code> at commit <code>abc1234</code>');
+  });
+});
