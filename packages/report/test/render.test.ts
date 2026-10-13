@@ -56,3 +56,26 @@ describe('failures and skips', () => {
     expect(html).not.toContain('failed');
   });
 });
+
+describe('prose, facts and evidence styling', () => {
+  it('renders facts, sections and notes, turns backtick spans into <code>, and tags HTTP status codes', () => {
+    const html = renderHtml(sample());
+    expect(html).toContain(
+      '<a href="https://rl.example" target="_blank" rel="noopener noreferrer">https://rl.example</a>',
+    );
+    expect(html).toContain('<dt>Deployed image</dt>');
+    expect(html).toContain('<h2>Method</h2>');
+    expect(html).toContain('shrunk with <code>overrides</code> for this IP only.');
+    expect(html).toContain('<strong>Scope.</strong> Both options, from one machine.');
+    expect(html).toContain('<h2>Not verified live</h2>');
+    expect(html).toContain('<strong>Fail-open.</strong> Covered by unit tests.');
+    expect(html).toContain('→ <span class="st st-2xx">200</span>');
+    expect(html).toContain('→ <span class="st st-4xx">429</span>');
+  });
+
+  it('keeps backticks literal inside evidence, which is preformatted', () => {
+    const r = sample();
+    r.checks[0]!.evidence = ['body=`raw`'];
+    expect(renderHtml(r)).toContain('body=`raw`');
+  });
+});
