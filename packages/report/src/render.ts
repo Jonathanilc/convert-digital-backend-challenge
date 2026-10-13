@@ -34,16 +34,29 @@ function summaryRows(checks: ReportCheck[]): string {
 }
 
 function details(c: ReportCheck): string {
-  return `<details class="check" id="${anchor(c.id)}">
+  return `<details class="check" id="${anchor(c.id)}" data-status="${c.status}"${c.status === 'fail' ? ' open' : ''}>
 <summary><span class="pill ${c.status}">${c.status.toUpperCase()}</span> <span class="id">${e(c.id)}</span> <span class="title">${e(c.title)}</span><span class="meta">started ${e(c.startedAt)} · ${seconds(c.durationMs)}</span></summary>
 <p class="scenario"><strong>Scenario.</strong> ${e(c.scenario)}</p>
+${c.error ? `<p class="reason ${c.status}">${e(c.error)}</p>` : ''}
 <pre class="evidence">${c.evidence.map(e).join('\n')}</pre>
 </details>`;
 }
 
 export function renderHtml(report: Report): string {
   const total = report.checks.length;
-  const passed = report.checks.filter((c) => c.status === 'pass').length;
+  const count = (status: ReportCheck['status']): number =>
+    report.checks.filter((c) => c.status === status).length;
+  const passed = count('pass');
+  const failed = count('fail');
+  const skipped = count('skip');
+  const result = failed > 0 ? 'fail' : 'pass';
+  const headline = [
+    `${passed}/${total} passed`,
+    failed > 0 && `${failed} failed`,
+    skipped > 0 && `${skipped} skipped`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
   const html = `<!doctype html>
 <html lang="en">
 <head>
@@ -51,14 +64,14 @@ export function renderHtml(report: Report): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${e(report.title)}</title>
 </head>
-<body>
+<body data-result="${result}">
 <header class="top">
 <div>
 <h1>${e(report.title)}</h1>
 ${report.subtitle ? `<p class="subtitle">${e(report.subtitle)}</p>` : ''}
 <p class="provenance">Generated <time datetime="${e(report.generatedAt)}">${e(report.generatedAt)}</time> by ${e(report.generator)}.</p>
 </div>
-<p class="result">${passed}/${total} passed</p>
+<p class="result ${result}">${headline}</p>
 </header>
 <main>
 <section id="summary">
