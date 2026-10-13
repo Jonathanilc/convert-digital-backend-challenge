@@ -1,4 +1,5 @@
 import type { Report, ReportCheck } from './model.js';
+import { assertSelfContained } from './self-contained.js';
 
 const ENTITIES: Record<string, string> = {
   '&': '&amp;',
@@ -43,7 +44,7 @@ function details(c: ReportCheck): string {
 export function renderHtml(report: Report): string {
   const total = report.checks.length;
   const passed = report.checks.filter((c) => c.status === 'pass').length;
-  return `<!doctype html>
+  const html = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -77,4 +78,6 @@ ${report.checks.map(details).join('\n')}
 </body>
 </html>
 `;
+  assertSelfContained(html);
+  return html;
 }
