@@ -1,4 +1,4 @@
-import type { Report, ReportCheck } from './model.js';
+import type { Report, ReportCheck, ReportFact, ReportSection } from './model.js';
 import { assertSelfContained } from './self-contained.js';
 
 const ENTITIES: Record<string, string> = {
@@ -12,6 +12,40 @@ const ENTITIES: Record<string, string> = {
 export const escapeHtml = (text: string): string =>
   text.replace(/[&<>"']/g, (c) => ENTITIES[c] ?? c);
 const e = escapeHtml;
+/** Escaped prose with the one inline notation the standard allows: `code` in backticks. */
+export const inline = (text: string): string => e(text).replace(/`([^`]+)`/g, '<code>$1</code>');
+/** Escaped evidence; "→ 200" style status codes get a class so the stylesheet can colour them. */
+const evidenceLine = (line: string): string =>
+  e(line).replace(
+    /→ (\d)(\d{2})\b/g,
+    (_m, first: string, rest: string) => `→ <span class="st st-${first}xx">${first}${rest}</span>`,
+  );
+
+function facts(items: ReportFact[] | undefined): string {
+  if (!items?.length) return '';
+  const rows = items.map((f) => {
+    const value = f.href
+      ? `<a href="${e(f.href)}" target="_blank" rel="noopener noreferrer">${e(f.value)}</a>`
+      : `<code>${e(f.value)}</code>`;
+    return `<div><dt>${e(f.label)}</dt><dd>${value}</dd></div>`;
+  });
+  return `<dl class="facts">\n${rows.join('\n')}\n</dl>`;
+}
+
+function sections(items: ReportSection[] | undefined): string {
+  if (!items?.length) return '';
+  return items
+    .map((sec) => {
+      const paragraphs = (sec.paragraphs ?? []).map((p) => `<p>${inline(p)}</p>`);
+      const bullets = (sec.items ?? []).map(
+        (it) =>
+          `<li>${it.title ? `<strong>${inline(it.title)}.</strong> ` : ''}${inline(it.text)}</li>`,
+      );
+      const list = bullets.length ? `<ul>\n${bullets.join('\n')}\n</ul>` : '';
+      return `<section class="prose">\n<h2>${e(sec.title)}</h2>\n${paragraphs.join('\n')}\n${list}\n</section>`;
+    })
+    .join('\n');
+}
 
 const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)}s`;
 const anchor = (id: string): string => `check-${id.replace(/[^A-Za-z0-9_-]+/g, '-')}`;
@@ -38,7 +72,7 @@ function details(c: ReportCheck): string {
 <summary><span class="pill ${c.status}">${c.status.toUpperCase()}</span> <span class="id">${e(c.id)}</span> <span class="title">${e(c.title)}</span><span class="meta">started ${e(c.startedAt)} · ${seconds(c.durationMs)}</span></summary>
 <p class="scenario"><strong>Scenario.</strong> ${e(c.scenario)}</p>
 ${c.error ? `<p class="reason ${c.status}">${e(c.error)}</p>` : ''}
-<pre class="evidence">${c.evidence.map(e).join('\n')}</pre>
+${c.evidence.length ? `<pre class="evidence">${c.evidence.map(evidenceLine).join('\n')}</pre>` : '<p class="empty">No evidence recorded.</p>'}
 </details>`;
 }
 
@@ -74,6 +108,8 @@ ${report.subtitle ? `<p class="subtitle">${e(report.subtitle)}</p>` : ''}
 <p class="result ${result}">${headline}</p>
 </header>
 <main>
+${facts(report.facts)}
+${sections(report.sections)}
 <section id="summary">
 <h2>Summary</h2>
 <table class="summary">
@@ -87,6 +123,7 @@ ${summaryRows(report.checks)}
 <h2>Evidence</h2>
 ${report.checks.map(details).join('\n')}
 </section>
+${sections(report.notes)}
 </main>
 </body>
 </html>

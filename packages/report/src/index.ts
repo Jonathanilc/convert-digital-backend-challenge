@@ -6,5 +6,5 @@ export type {
   ReportItem,
   ReportSection,
 } from './model.js';
-export { renderHtml } from './render.js';
+export { escapeHtml, inline, renderHtml } from './render.js';
 export { assertSelfContained } from './self-contained.js';
