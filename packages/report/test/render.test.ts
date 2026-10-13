@@ -18,3 +18,19 @@ describe('renderHtml', () => {
     expect(html).toContain('Option 2 · Chat server');
   });
 });
+
+describe('escaping', () => {
+  it('escapes every piece of producer text, so evidence and titles cannot inject markup', () => {
+    const html = renderHtml(sample());
+    expect(html).not.toContain('<script>alert(1)</script>');
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt; &amp; &quot;quotes&quot;');
+
+    const hostile = sample();
+    hostile.title = '<b>x</b>';
+    hostile.checks[0]!.title = 'a < b';
+    const h = renderHtml(hostile);
+    expect(h).toContain('<title>&lt;b&gt;x&lt;/b&gt;</title>');
+    expect(h).toContain('a &lt; b');
+    expect(h).not.toContain('<b>x</b>');
+  });
+});
