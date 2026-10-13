@@ -1,5 +1,17 @@
 import type { Report, ReportCheck } from './model.js';
 
+const ENTITIES: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+};
+/** Every string from the producer passes through here; the renderer is the only code that emits markup. */
+export const escapeHtml = (text: string): string =>
+  text.replace(/[&<>"']/g, (c) => ENTITIES[c] ?? c);
+const e = escapeHtml;
+
 const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)}s`;
 const anchor = (id: string): string => `check-${id.replace(/[^A-Za-z0-9_-]+/g, '-')}`;
 
@@ -9,11 +21,11 @@ function summaryRows(checks: ReportCheck[]): string {
   for (const c of checks) {
     if (c.group !== group) {
       group = c.group;
-      if (group) rows.push(`<tr class="group"><th colspan="5">${group}</th></tr>`);
+      if (group) rows.push(`<tr class="group"><th colspan="5">${e(group)}</th></tr>`);
     }
     rows.push(
-      `<tr class="check" data-status="${c.status}"><td class="id"><a href="#${anchor(c.id)}">${c.id}</a></td>` +
-        `<td>${c.title}</td><td class="scenario">${c.scenario}</td>` +
+      `<tr class="check" data-status="${c.status}"><td class="id"><a href="#${anchor(c.id)}">${e(c.id)}</a></td>` +
+        `<td>${e(c.title)}</td><td class="scenario">${e(c.scenario)}</td>` +
         `<td><span class="pill ${c.status}">${c.status.toUpperCase()}</span></td><td class="num">${seconds(c.durationMs)}</td></tr>`,
     );
   }
@@ -22,9 +34,9 @@ function summaryRows(checks: ReportCheck[]): string {
 
 function details(c: ReportCheck): string {
   return `<details class="check" id="${anchor(c.id)}">
-<summary><span class="pill ${c.status}">${c.status.toUpperCase()}</span> <span class="id">${c.id}</span> <span class="title">${c.title}</span><span class="meta">started ${c.startedAt} · ${seconds(c.durationMs)}</span></summary>
-<p class="scenario"><strong>Scenario.</strong> ${c.scenario}</p>
-<pre class="evidence">${c.evidence.join('\n')}</pre>
+<summary><span class="pill ${c.status}">${c.status.toUpperCase()}</span> <span class="id">${e(c.id)}</span> <span class="title">${e(c.title)}</span><span class="meta">started ${e(c.startedAt)} · ${seconds(c.durationMs)}</span></summary>
+<p class="scenario"><strong>Scenario.</strong> ${e(c.scenario)}</p>
+<pre class="evidence">${c.evidence.map(e).join('\n')}</pre>
 </details>`;
 }
 
@@ -36,14 +48,14 @@ export function renderHtml(report: Report): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${report.title}</title>
+<title>${e(report.title)}</title>
 </head>
 <body>
 <header class="top">
 <div>
-<h1>${report.title}</h1>
-${report.subtitle ? `<p class="subtitle">${report.subtitle}</p>` : ''}
-<p class="provenance">Generated <time datetime="${report.generatedAt}">${report.generatedAt}</time> by ${report.generator}.</p>
+<h1>${e(report.title)}</h1>
+${report.subtitle ? `<p class="subtitle">${e(report.subtitle)}</p>` : ''}
+<p class="provenance">Generated <time datetime="${e(report.generatedAt)}">${e(report.generatedAt)}</time> by ${e(report.generator)}.</p>
 </div>
 <p class="result">${passed}/${total} passed</p>
 </header>
