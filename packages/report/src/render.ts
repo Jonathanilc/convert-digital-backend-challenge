@@ -1,4 +1,5 @@
 import type { Report, ReportCheck, ReportFact, ReportSection } from './model.js';
+import { STYLES, SCRIPT } from './assets.js';
 import { assertSelfContained } from './self-contained.js';
 
 const ENTITIES: Record<string, string> = {
@@ -97,13 +98,14 @@ export function renderHtml(report: Report): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${e(report.title)}</title>
+<style>${STYLES}</style>
 </head>
 <body data-result="${result}">
 <header class="top">
 <div>
 <h1>${e(report.title)}</h1>
 ${report.subtitle ? `<p class="subtitle">${e(report.subtitle)}</p>` : ''}
-<p class="provenance">Generated <time datetime="${e(report.generatedAt)}">${e(report.generatedAt)}</time> by ${e(report.generator)}.</p>
+<p class="provenance">Generated <time datetime="${e(report.generatedAt)}">${e(report.generatedAt)}</time> by ${inline(report.generator)}.</p>
 </div>
 <p class="result ${result}">${headline}</p>
 </header>
@@ -112,12 +114,15 @@ ${facts(report.facts)}
 ${sections(report.sections)}
 <section id="summary">
 <h2>Summary</h2>
+<div class="toolbar"><button type="button" id="expand">Expand all</button><button type="button" id="collapse">Collapse all</button>${failed > 0 ? '<label><input type="checkbox" id="fail-only"> Failures only</label>' : ''}<span>Click a row to jump to its evidence.</span></div>
+<div class="scroll">
 <table class="summary">
 <thead><tr><th>#</th><th>Requirement</th><th>Scenario</th><th>Result</th><th>Time</th></tr></thead>
 <tbody>
 ${summaryRows(report.checks)}
 </tbody>
 </table>
+</div>
 </section>
 <section id="evidence">
 <h2>Evidence</h2>
@@ -125,6 +130,8 @@ ${report.checks.map(details).join('\n')}
 </section>
 ${sections(report.notes)}
 </main>
+<footer>Built to the repository's report standard (docs/REPORTING.md): one self-contained file, no external resources, every producer string escaped.</footer>
+<script>${SCRIPT}</script>
 </body>
 </html>
 `;
