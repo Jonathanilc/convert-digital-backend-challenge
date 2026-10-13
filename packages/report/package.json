@@ -1,0 +1,30 @@
+{
+  "name": "@challenge/report",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Turns a Report model into one self-contained HTML file; the repository's report standard (docs/REPORTING.md)",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.1",
+    "@vitest/coverage-v8": "^5.0.3",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.3"
+  }
+}

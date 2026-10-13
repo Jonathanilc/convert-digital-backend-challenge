@@ -11,6 +11,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/rate-limiter/package.json packages/rate-limiter/
 COPY packages/chat-server/package.json packages/chat-server/
+COPY packages/report/package.json packages/report/
 RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
 
 # ---- dev ------------------------------------------------------------------------------------
