@@ -6,17 +6,19 @@
  *
  * Strategy: temporary overrides shrink the limits for THIS machine's IP only, so real 429s,
  * Retry-After values and sliding-window behaviour can be observed without locking the demo for
- * anyone else. Every override and test room is removed at the end. Writes docs/LIVE-VERIFICATION.md.
+ * anyone else. Every override and test room is removed at the end. Writes docs/LIVE-VERIFICATION.html,
+ * one self-contained file built to the repository's report standard (docs/REPORTING.md).
  */
 import { execSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import WebSocket from 'ws';
+import { renderHtml, type Report } from '../packages/report/src/index.ts';
 
 const RL = process.env.RL_URL ?? 'https://convert-digital-rate-limiter.fly.dev';
 const CHAT = process.env.CHAT_URL ?? 'https://convert-digital-chat.fly.dev';
 const ADMIN_TOKEN = required('ADMIN_TOKEN');
 const CHAT_ADMIN_PASSWORD = required('CHAT_ADMIN_PASSWORD');
-const OUT = process.env.REPORT_PATH ?? 'docs/LIVE-VERIFICATION.md';
+const OUT = process.env.REPORT_PATH ?? 'docs/LIVE-VERIFICATION.html';
 const ONLY = process.env.ONLY;
 
 function required(name: string): string {
@@ -964,75 +966,73 @@ function gitSha(): string {
 function writeReport(): void {
   const now = new Date();
   const pass = checks.filter((c) => c.result === 'PASS').length;
-  const rows = checks
-    .map(
-      (c) =>
-        `| ${c.id} | ${c.requirement} | ${c.scenario} | **${c.result}** | ${(c.durationMs / 1000).toFixed(1)}s |`,
-    )
-    .join('\n');
-  const details = checks
-    .map(
-      (c) => `### ${c.id} ${c.requirement}
+  const nz = now.toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland' });
+  const group = (option: 1 | 2): string =>
+    option === 1 ? 'Option 1 · API rate limiter' : 'Option 2 · WebSocket chat server';
 
-**Scenario.** ${c.scenario}
+  const report: Report = {
+    title: 'Live verification against the challenge requirements',
+    subtitle: 'Both deployed applications, exercised over the public internet',
+    generatedAt: now.toISOString(),
+    generator: `\`scripts/live-verification.mts\` at commit \`${gitSha()}\` (${nz} NZ)`,
+    facts: [
+      { label: 'Option 1 · API rate limiter', value: RL, href: RL },
+      { label: 'Option 1 · deployed image', value: deployedImage('convert-digital-rate-limiter') },
+      { label: 'Option 2 · WebSocket chat server', value: CHAT, href: CHAT },
+      { label: 'Option 2 · deployed image', value: deployedImage('convert-digital-chat') },
+    ],
+    sections: [
+      {
+        title: 'Method',
+        paragraphs: [
+          'Every check ran against the deployed applications over the public internet from one machine. ' +
+            "Limits were shrunk for this machine's IP alone through the temporary-override API, so real 429s, " +
+            '`Retry-After` values and sliding-window behaviour could be observed within seconds without affecting ' +
+            "other visitors. Budgets are read from the server's own `RateLimit-Remaining` header rather than " +
+            'assumed, because counters deliberately carry across override changes. All overrides and test rooms ' +
+            'were removed at the end. Tokens and secrets are redacted. Re-run with `make verify-live`.',
+          'What this complements: the automated suites, run in Docker on every push and in CI against real Redis ' +
+            'and real sockets, cover behaviours that cannot be exercised safely on a live system, in particular ' +
+            'fail-open / fail-closed under a Redis outage and exactly-`limit` admission under concurrent requests.',
+          'Re-run constraints: the chat server allows 5 logins per IP per 15 minutes and this script uses 3, so ' +
+            'run it at most once per 15 minutes; each run also adds about a dozen anonymous requests to this ' +
+            "IP's hourly budget on the rate limiter.",
+        ],
+      },
+    ],
+    checks: checks.map((c) => ({
+      id: c.id,
+      group: group(c.option),
+      title: c.requirement,
+      scenario: c.scenario,
+      status: c.result === 'PASS' ? 'pass' : 'fail',
+      startedAt: c.startedAt,
+      durationMs: c.durationMs,
+      evidence: c.evidence,
+      ...(c.error ? { error: c.error } : {}),
+    })),
+    notes: [
+      {
+        title: 'Not verified live, and why',
+        items: [
+          {
+            title: 'Fail-open / fail-closed when Redis is unreachable',
+            text: 'Would require taking the shared Redis down. Covered by the engine, middleware and API suites with an injected failing client.',
+          },
+          {
+            title: 'Atomicity across concurrent instances',
+            text: 'The demo runs one Machine. Covered by the store contract suite: 50 parallel requests, exactly 10 admitted, on real Redis.',
+          },
+          {
+            title: 'Fixed-window boundary burst',
+            text: "The default rule's 60-minute window is impractical to straddle live; the memory and Redis stores share one contract suite that covers it.",
+          },
+        ],
+      },
+    ],
+  };
 
-**Result: ${c.result}**${c.error ? `  \n_${c.error}_` : ''} · started ${c.startedAt} · ${(c.durationMs / 1000).toFixed(1)}s
-
-\`\`\`text
-${c.evidence.join('\n')}
-\`\`\`
-`,
-    )
-    .join('\n');
-
-  const md = `# Live verification against the challenge requirements
-
-_Generated ${now.toISOString()} (${now.toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland' })} NZ) by \`scripts/live-verification.mts\` at commit \`${gitSha()}\`._
-
-| Target | URL | Deployed image |
-|---|---|---|
-| Option 1, rate limiter | ${RL} | \`${deployedImage('convert-digital-rate-limiter')}\` |
-| Option 2, chat server | ${CHAT} | \`${deployedImage('convert-digital-chat')}\` |
-
-**Result: ${pass}/${checks.length} checks passed.**
-
-## Method
-
-Every check ran against the **deployed** applications over the public internet from one machine. Limits
-were shrunk for this machine's IP alone through the temporary-override API, so real 429s, \`Retry-After\`
-values and sliding-window behaviour could be observed within seconds without affecting other visitors.
-Budgets are read from the server's own \`RateLimit-Remaining\` header rather than assumed, because
-counters deliberately carry across override changes. All overrides and test rooms were removed at the
-end. Tokens and secrets are redacted. Re-run with \`make verify-live\`.
-
-What this complements: the automated suites (183 + 69 tests, run in Docker on every push and in CI
-against real Redis and real sockets) cover behaviours that cannot be exercised safely on a live system,
-in particular fail-open / fail-closed under a Redis outage and exactly-\`limit\` admission under 50
-concurrent requests.
-
-Re-run constraints: the chat server allows 5 logins per IP per 15 minutes and this script uses 3, so
-run it at most once per 15 minutes; each run also adds about a dozen anonymous requests to this IP's
-hourly budget on the rate limiter.
-
-## Summary
-
-| # | Requirement | Scenario | Result | Time |
-|---|---|---|---|---|
-${rows}
-
-## Evidence
-
-${details}
-## Not verified live, and why
-
-- **Fail-open / fail-closed when Redis is unreachable.** Would require taking the shared Redis down.
-  Covered by the engine, middleware and API suites with an injected failing client.
-- **Atomicity across concurrent instances.** The demo runs one Machine. Covered by the store contract
-  suite: 50 parallel requests, exactly 10 admitted, on real Redis.
-- **Fixed-window boundary burst.** The default rule's 60-minute window is impractical to straddle live;
-  the memory and Redis stores share one contract suite that covers it.
-`;
-  writeFileSync(OUT, md);
+  writeFileSync(OUT, renderHtml(report));
   console.log(`\nreport written to ${OUT}: ${pass}/${checks.length} passed`);
 }
 
@@ -1041,12 +1041,20 @@ try {
   if (ONLY !== '2') await option1();
   if (ONLY !== '1') await option2();
 } finally {
-  for (const id of [...createdOverrides]) {
-    const r = await http('DELETE', `${RL}/admin/overrides/${id}`, { headers: adminHeaders });
-    console.log(`cleanup: DELETE /admin/overrides/${id} → ${r.status}`);
+  // The report is written even if cleanup cannot reach the app: the evidence is the deliverable.
+  try {
+    for (const id of [...createdOverrides]) {
+      const r = await http('DELETE', `${RL}/admin/overrides/${id}`, { headers: adminHeaders });
+      console.log(`cleanup: DELETE /admin/overrides/${id} → ${r.status}`);
+    }
+    const leftover = await http('GET', `${RL}/admin/overrides`, { headers: adminHeaders });
+    console.log(`overrides remaining on the live app: ${leftover.body?.overrides?.length ?? '?'}`);
+  } catch (e) {
+    console.log(
+      `cleanup failed: ${(e as Error).message}; overrides possibly left behind: ${[...createdOverrides].join(', ') || 'none'}`,
+    );
+  } finally {
+    writeReport();
   }
-  const leftover = await http('GET', `${RL}/admin/overrides`, { headers: adminHeaders });
-  console.log(`overrides remaining on the live app: ${leftover.body?.overrides?.length ?? '?'}`);
-  writeReport();
 }
 process.exit(checks.some((c) => c.result === 'FAIL') ? 1 : 0);

@@ -119,7 +119,7 @@ fly-status: ## Machines, health and recent releases (FLY_CONFIG=fly.chat.toml fo
 fly-logs: ## Tail the Fly app logs (FLY_CONFIG=fly.chat.toml for the chat app)
 	$(FLY) logs --app $(FLY_APP)
 
-verify-live: ## Verify both live apps against the challenge requirements; writes docs/LIVE-VERIFICATION.md
+verify-live: ## Verify both live apps against the challenge requirements; writes docs/LIVE-VERIFICATION.html
 	set -a; . ./.env.production.local; set +a; npx tsx scripts/live-verification.mts
 
 ##@ Housekeeping
