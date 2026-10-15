@@ -6,17 +6,18 @@
 #   make test         the whole test suite inside Docker
 #   make smoke        production image + black-box smoke suite
 #
-# Variables: APP_PORT (3000), REDIS_PORT (6379), IMAGE (convert-digital/rate-limiter:local)
+# Variables: APP_PORT (3000), REDIS_PORT (6379), REDIS_UI_PORT (8081), IMAGE (convert-digital/rate-limiter:local)
 
 .DEFAULT_GOAL := help
 SHELL := /bin/sh
 
 APP_PORT   ?= 3000
 REDIS_PORT ?= 6379
+REDIS_UI_PORT ?= 8081
 IMAGE      ?= convert-digital/rate-limiter:local
 IMAGE_CHAT ?= convert-digital/chat-server:local
 CHAT_PORT  ?= 3001
-export APP_PORT REDIS_PORT IMAGE IMAGE_CHAT CHAT_PORT
+export APP_PORT REDIS_PORT REDIS_UI_PORT IMAGE IMAGE_CHAT CHAT_PORT
 
 COMPOSE      := docker compose
 COMPOSE_PROD := docker compose -f compose.prod.yaml
@@ -33,7 +34,7 @@ GIT_SHA       ?= $(shell git rev-parse --short HEAD)
 FLY_IMAGE     ?= registry.fly.io/$(FLY_APP):$(GIT_SHA)
 APP_URL       ?= https://$(FLY_APP).fly.dev
 
-.PHONY: help dev up down logs shell redis test test-watch check fmt openapi-types image prod-up prod-down prod-logs smoke smoke-remote smoke-remote-chat deploy deploy-chat fly-status fly-logs verify-live clean
+.PHONY: help dev up down logs shell redis redis-ui test test-watch check fmt openapi-types image prod-up prod-down prod-logs smoke smoke-remote smoke-remote-chat deploy deploy-chat fly-status fly-logs verify-live clean
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*## "; printf "\nUsage: make <target> [APP_PORT=3100] [REDIS_PORT=6380] [IMAGE=tag]\n"} /^##@/ {printf "\n%s\n", substr($$0, 5)} /^[a-zA-Z0-9_-]+:.*## / {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -46,8 +47,8 @@ dev: ## Rate limiter (APP_PORT) + chat server (CHAT_PORT) with hot reload + Redi
 up: ## Same stack, detached
 	$(COMPOSE) up --build -d app chat
 
-down: ## Stop the development stack
-	$(COMPOSE) down
+down: ## Stop the development stack (including redis-ui, if started)
+	$(COMPOSE) --profile tools down
 
 logs: ## Follow logs of both apps
 	$(COMPOSE) logs -f app chat
@@ -57,6 +58,10 @@ shell: ## Shell inside the running app container
 
 redis: ## Only Redis, for host-side runs (npm test on the host)
 	$(COMPOSE) up -d redis
+
+redis-ui: ## Redis Commander web UI (REDIS_UI_PORT, default 8081), pre-connected to the compose Redis
+	$(COMPOSE) --profile tools up -d redis-ui
+	@echo "Redis Commander: http://localhost:$(REDIS_UI_PORT)"
 
 ##@ Quality
 test: ## Full test suite inside the dev image against the compose Redis
@@ -124,6 +129,6 @@ verify-live: ## Verify both live apps against the challenge requirements; writes
 
 ##@ Housekeeping
 clean: ## Stop both stacks, remove volumes, delete build and coverage output
-	-$(COMPOSE) down -v --remove-orphans
+	-$(COMPOSE) --profile tools down -v --remove-orphans
 	-$(COMPOSE_PROD) down -v --remove-orphans
 	rm -rf packages/*/dist packages/*/coverage

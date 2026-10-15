@@ -52,18 +52,19 @@ curl -X POST http://localhost:3000/admin/overrides \
 `make` owns everything that touches Docker. npm scripts are plain Node tasks that run the same
 way on the host and inside the containers (`npm test`, `npm run check`, `npm run build`, ...).
 
-| Target                                        | Purpose                                                                              |
-| --------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `make dev` / `up` / `down` / `logs` / `shell` | Development stack: app with hot reload + Redis                                       |
-| `make test`                                   | Full suite inside the dev image against the compose Redis                            |
-| `make test-watch`                             | Vitest watch mode inside the container                                               |
-| `make check`                                  | `format:check` + `openapi:check` + `typecheck` + tests, inside Docker. What CI runs. |
-| `make fmt` / `make openapi-types`             | Prettier write / regenerate the types from `openapi.yaml`, inside the container      |
-| `make smoke`                                  | Build the runtime image, start it with Redis, run `test/smoke` against it, tear down |
-| `make prod-up` / `prod-down` / `prod-logs`    | The production image running locally                                                 |
-| `make image IMAGE=tag`                        | Build and tag the runtime image only                                                 |
-| `make redis`                                  | Only Redis, for host-side runs (`npm test` then needs no Docker beyond that)         |
-| `make clean`                                  | Stop both stacks, remove volumes, delete `dist/` and `coverage/`                     |
+| Target                                        | Purpose                                                                                  |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `make dev` / `up` / `down` / `logs` / `shell` | Development stack: app with hot reload + Redis                                           |
+| `make test`                                   | Full suite inside the dev image against the compose Redis                                |
+| `make test-watch`                             | Vitest watch mode inside the container                                                   |
+| `make check`                                  | `format:check` + `openapi:check` + `typecheck` + tests, inside Docker. What CI runs.     |
+| `make fmt` / `make openapi-types`             | Prettier write / regenerate the types from `openapi.yaml`, inside the container          |
+| `make smoke`                                  | Build the runtime image, start it with Redis, run `test/smoke` against it, tear down     |
+| `make prod-up` / `prod-down` / `prod-logs`    | The production image running locally                                                     |
+| `make image IMAGE=tag`                        | Build and tag the runtime image only                                                     |
+| `make redis`                                  | Only Redis, for host-side runs (`npm test` then needs no Docker beyond that)             |
+| `make redis-ui`                               | Redis Commander at http://localhost:8081 to browse the rate-limit keys (`REDIS_UI_PORT`) |
+| `make clean`                                  | Stop both stacks, remove volumes, delete `dist/` and `coverage/`                         |
 
 ## Deployment
 
